@@ -20,10 +20,33 @@
                font-size:15px; letter-spacing:.04em; opacity:.95; }
   #objective .k { font-size:10px; letter-spacing:.28em; color:#c9a06a; display:block; margin-bottom:3px; }
 
-  #coverage { position:absolute; top:max(14px, env(safe-area-inset-top)); right:18px; text-align:right;
-              font-size:15px; letter-spacing:.05em; }
-  #coverage .k { font-size:10px; letter-spacing:.28em; color:#c9a06a; display:block; margin-bottom:3px; }
-  #coverage .v { font-variant-numeric: tabular-nums; font-size:20px; }
+  #watchCol { position:absolute; top:max(14px, env(safe-area-inset-top)); right:18px; text-align:right;
+              display:flex; flex-direction:column; gap:9px; align-items:flex-end; }
+  #watchCol .k { font-size:10px; letter-spacing:.28em; color:#c9a06a; display:block; margin-bottom:2px; }
+  #watchCol .v { font-variant-numeric: tabular-nums; font-size:14px; letter-spacing:.05em; }
+  #coverage .v { font-size:20px; }
+  #windArrow { display:block; margin-left:auto; }
+
+  /* ---------- Phase 2 overlays ---------- */
+  #softObj { position:absolute; left:50%; top:24%; transform:translateX(-50%); width:82vw; text-align:center;
+             font-size:17px; letter-spacing:.12em; line-height:1.9; color:#e8cfa8; opacity:0; }
+  #softObj .s2 { display:block; margin-top:8px; font-size:11px; letter-spacing:.32em; color:#c9a06a; }
+  #toast { position:absolute; left:50%; top:11%; transform:translateX(-50%); max-width:80vw; text-align:center;
+           background:rgba(24,17,32,.82); border:1px solid rgba(255,190,120,.4); border-radius:12px;
+           padding:10px 18px; font-size:14px; letter-spacing:.07em; color:#ffe2b8; opacity:0;
+           backdrop-filter: blur(4px); }
+  #toast.alert { border-color:rgba(255,110,90,.65); color:#ffc9b0; }
+  #toast.good { border-color:rgba(140,255,170,.5); color:#d8ffdf; }
+  #card { position:absolute; inset:0; z-index:38; display:none; flex-direction:column; align-items:center;
+          justify-content:center; text-align:center; opacity:0; pointer-events:none;
+          background:radial-gradient(ellipse at center, rgba(12,7,22,.62), rgba(7,4,14,.94)); }
+  #card h1 { font-size:min(34px, 7vw); letter-spacing:.32em; color:#ffe2b8; margin:0 0 16px; font-weight:700;
+             text-shadow:0 2px 18px rgba(255,180,100,.25); }
+  #card .sub { font-size:15px; letter-spacing:.1em; color:#d8b488; line-height:1.9; max-width:78vw; margin-bottom:30px; }
+  #card .cont { font-size:10px; letter-spacing:.34em; color:#8f7a66; }
+  #warm { position:absolute; inset:0; pointer-events:none; z-index:16; opacity:0;
+          background:radial-gradient(ellipse at center, rgba(255,190,120,.4), rgba(255,140,70,.1)); }
+  #fbRing { display:none; }
 
   #chips { position:absolute; left:18px; bottom:max(16px, env(safe-area-inset-bottom)); display:flex; gap:8px; flex-wrap:wrap; max-width:60vw; }
   .chip { background:rgba(24,17,32,.72); border:1px solid rgba(255,190,120,.35); border-radius:999px;
@@ -78,9 +101,17 @@
 <div id="app">
   <div id="hud">
     <div id="objective" class="hudText"><span class="k">OBJECTIVE</span><span id="objText">Dusk is falling. Follow the trail north.</span></div>
-    <div id="coverage" class="hudText" style="display:none"><span class="k">WATCH COVERAGE</span><span class="v" id="covText">0%</span></div>
+    <div id="watchCol">
+      <div id="coverage" class="hudText" style="display:none"><span class="k">WATCH COVERAGE</span><span class="v" id="covText">0%</span></div>
+      <div id="forestHud" class="hudText" style="display:none"><span class="k">FOREST</span><span class="v" id="forestVal">100%</span></div>
+      <div id="clockHud" class="hudText" style="display:none"><span class="k" id="clockDay">DAY 1</span><span class="v" id="clockPhase">DUSK</span></div>
+      <div id="windHud" class="hudText" style="display:none"><span class="k">WIND</span><svg id="windArrow" width="22" height="22" viewBox="0 0 24 24"><path d="M12 2 L18.5 15 L12 11.6 L5.5 15 Z" fill="#ffe2b8"/></svg></div>
+      <div id="scoreHud" class="hudText" style="display:none"><span class="k">POINTS</span><span class="v" id="scoreVal">0</span></div>
+    </div>
+    <div id="softObj" class="hudText"><span id="softMain">You wake on cold ground. The light is going.</span><span class="s2" id="softSub">FOLLOW THE TRAIL — NORTH</span></div>
+    <div id="toast" class="hudText"></div>
     <div id="chips"></div>
-    <div id="prompt" class="hudText"><span class="key" id="promptKey">E</span><span id="promptText"></span></div>
+    <div id="prompt" class="hudText"><span class="key" id="promptKey">E</span><span id="promptText"></span><svg id="fbRing" width="26" height="26" viewBox="0 0 26 26"><circle cx="13" cy="13" r="10" fill="none" stroke="rgba(255,220,170,.25)" stroke-width="3"/><circle id="fbArc" cx="13" cy="13" r="10" fill="none" stroke="#ffcf7a" stroke-width="3" stroke-linecap="round" stroke-dasharray="62.83" stroke-dashoffset="62.83" transform="rotate(-90 13 13)"/></svg></div>
     <div id="padPanel">
       <h3 id="padName">RIDGE PAD</h3>
       <div class="blurb" id="padBlurb"></div>
@@ -93,7 +124,9 @@
   </div>
   <div id="joy"><div id="joyKnob"></div></div>
   <button id="btnAct">&#9679;</button>
+  <div id="warm"></div>
   <div id="vignette"></div>
+  <div id="card"><h1>THE FOREST REMEMBERS</h1><div class="sub" id="cardSub"></div><div class="cont">PRESS ANY KEY · TAP</div></div>
   <canvas id="overlay"></canvas>
   <div id="fade"></div>
 </div>
@@ -114,7 +147,8 @@
    One valley at dusk. You are IN the woods. Build the forest's eyes.
    Systems in this file: world · character · interact/salvage · station build ·
    drone patrol/coverage · on-canvas test harness (?test=1)
-   Fire, level arc, hikers, audio, endless mode: PHASE 2 (see Events seam below)
+   PHASE 2 (below the Events seam): fire + spread + firebreak · scorch save
+   file · scripted arc · day/night clock · hiker rescue · WebAudio · endless
    ========================================================================== */
 (function () {
 'use strict';
@@ -587,7 +621,7 @@ const player = {
 })();
 
 /* ---------------------------------------------------------------- input -- */
-const input = { f: 0, r: 0, joy: null, camDrag: null };
+const input = { f: 0, r: 0, joy: null, camDrag: null, actHold: false };
 const keys = {};
 window.addEventListener('keydown', (e) => {
   keys[e.code] = true;
@@ -652,6 +686,10 @@ canvas.addEventListener('touchend', (e) => {
   }
 }, { passive: false });
 document.getElementById('btnAct').addEventListener('click', () => tryInteract());
+// hold the action button = hold E (firebreak cutting on touch)
+document.getElementById('btnAct').addEventListener('touchstart', () => { input.actHold = true; }, { passive: true });
+document.getElementById('btnAct').addEventListener('touchend', () => { input.actHold = false; }, { passive: true });
+document.getElementById('btnAct').addEventListener('touchcancel', () => { input.actHold = false; }, { passive: true });
 
 function readMoveInput() {
   let f = 0, r = 0;
@@ -686,7 +724,7 @@ const HUD = {
 };
 if (IS_TOUCH) { HUD.hint.textContent = 'LEFT THUMB MOVE · RIGHT THUMB LOOK'; HUD.promptKey.style.display = 'none'; }
 
-const inventory = { solar: 0, droneKit: 0, map: 0 };
+const inventory = { solar: 0, droneKit: 0, map: 0, radio: 0 };
 function renderChips() {
   HUD.chips.innerHTML = '';
   const add = (label, n) => {
@@ -699,6 +737,7 @@ function renderChips() {
   add('SOLAR PANEL', inventory.solar);
   add('DRONE KIT', inventory.droneKit);
   add('MAP FRAGMENT', inventory.map);
+  add('RADIO PARTS', inventory.radio);
 }
 function setObjective(t) { HUD.objText.textContent = t; }
 
@@ -712,11 +751,14 @@ const state = {
 };
 function nearestInteract() {
   const px = player.pos.x, pz = player.pos.z;
+  // phase 2 targets (firebreak / hiker / supply drop) outrank the basics
+  const p2 = p2InteractTarget(px, pz);
+  if (p2) return p2;
   if (!state.salvaged) {
     const d = Math.hypot(px - CACHE.x, pz - CACHE.z);
     if (d < 5.5) return { type: 'cache', label: 'Search the ranger cache' };
   }
-  if (state.salvaged && !state.builtStation && state.nearPad) {
+  if (state.salvaged && state.nearPad && !stationAt(state.nearPad)) {
     if (inventory.solar > 0 && inventory.droneKit > 0)
       return { type: 'build', label: 'Build watch station', pad: state.nearPad };
   }
@@ -727,6 +769,7 @@ function tryInteract() {
   if (!t) return;
   if (t.type === 'cache') doSalvage();
   else if (t.type === 'build') buildStation(t.pad);
+  else p2Interact(t);   // firebreak is a HOLD, handled per-frame in phase 2
 }
 function doSalvage() {
   if (state.salvaged) return;
@@ -972,8 +1015,9 @@ function makeDroneMesh() {
   g.add(ring);
   return { group: g, rotors };
 }
+function stationAt(pad) { for (const s of stations) if (s.pad === pad) return s; return null; }
 function buildStation(pad) {
-  if (state.builtStation) return false;
+  if (stationAt(pad)) return false;
   if (inventory.solar < 1 || inventory.droneKit < 1) return false;
   inventory.solar--; inventory.droneKit--;
   renderChips();
@@ -1003,7 +1047,7 @@ function buildStation(pad) {
     coverage: cov, revealed: new Set(),
   };
   stations.push(st);
-  state.builtStation = st;
+  if (!state.builtStation) state.builtStation = st;
   // hide this pad's marker; other pads stay visible (phase 2 salvage powers them)
   const gi = PADS.indexOf(pad);
   padMarkers[gi].getObjectByName('pillar').visible = false;
@@ -1103,8 +1147,8 @@ function updatePads() {
     if (d < 8) { state.nearPad = p; break; }
   }
   const pad = state.nearPad;
-  const showPanel = pad && (!state.builtStation || state.builtStation.pad !== pad);
-  const canBuild = showPanel && !state.builtStation && inventory.solar > 0 && inventory.droneKit > 0;
+  const showPanel = pad && !stationAt(pad);
+  const canBuild = showPanel && inventory.solar > 0 && inventory.droneKit > 0;
   if (!showPanel) {
     if (shownPad) { HUD.padPanel.style.display = 'none'; shownPad = null; }
     setPreview(null);
@@ -1201,8 +1245,8 @@ function updateCamera(dt) {
 function updateInteract() {
   const t = nearestInteract();
   state.promptTarget = t;
-  // build prompt is carried by the pad panel; only the cache uses the floating pill
-  const showPill = t && t.type === 'cache';
+  // build prompt is carried by the pad panel; everything else uses the floating pill
+  const showPill = t && t.type !== 'build';
   HUD.prompt.style.display = showPill ? 'flex' : 'none';
   if (showPill) HUD.promptText.textContent = t.label;
   if (IS_TOUCH) HUD.btnAct.style.display = t ? 'flex' : 'none';
@@ -1232,21 +1276,11 @@ function update(dt) {
 }
 
 /* ============================================================
-   PHASE 2 EXTENSION POINTS — the events seam (do not build yet)
-   ============================================================
-   Everything below Level 1's core sandbox hangs off this seam.
-   Already emitted by phase 1 code: 'salvage', 'stationBuilt',
+   THE EVENTS SEAM — phase 1 emits, phase 2 (further down) listens.
+   Emitted by phase 1 code: 'salvage', 'stationBuilt',
    'droneLaunched', 'droneLap', 'tick'.
-   TODO(phase2): fire — ignition, cellular spread over dry fuel,
-                 wind arrow, firebreak hold-minigame, scorch scars
-                 persisted to localStorage (the forest is the save file)
-   TODO(phase2): scripted level arc — WAKE / SALVAGE / SITE & BUILD /
-                 FIRST WATCH / FIRST SMOKE / SAVED-or-SCARRED card
-   TODO(phase2): night hiker signal event (rescue = the emotional close)
-   TODO(phase2): WebAudio ambience — wind, birds, night insects,
-                 fire crackle; all generated, no assets
-   TODO(phase2): endless watch — random ignitions, salvage for
-                 station 2 + radio parts, day/night clock HUD
+   Emitted by phase 2 code: 'ignite', 'burnout', 'firebreak',
+   'detect', 'hikerSignal', 'rescue', 'salvage2', 'dawn'.
    ============================================================ */
 const Events = {
   handlers: {},
@@ -1361,6 +1395,950 @@ const G = {
   },
 };
 window.__litw = G;
+
+/* ============================================================================
+   PHASE 2 — fire · scorch save file · scripted arc · night · hiker · audio
+   Everything here hangs off the Events seam; sim advances only via 'tick',
+   so ?test=1 drives it deterministically through G.step().
+   ========================================================================== */
+
+/* ------------------------------------------------------ phase 2 HUD refs -- */
+const P2E = {};
+for (const id of ['objective', 'softObj', 'toast', 'card', 'cardSub', 'forestHud', 'forestVal',
+  'clockHud', 'clockDay', 'clockPhase', 'windHud', 'windArrow', 'scoreHud', 'scoreVal',
+  'fbRing', 'fbArc', 'warm']) P2E[id] = document.getElementById(id);
+
+// storage shim: real localStorage when available (itch/https/file), memory otherwise
+const store = (function () {
+  try { localStorage.setItem('litw._t', '1'); localStorage.removeItem('litw._t'); return localStorage; }
+  catch (e) { const m = {}; return { setItem: (k, v) => { m[k] = String(v); }, getItem: (k) => (k in m ? m[k] : null), removeItem: (k) => { delete m[k]; } }; }
+})();
+const SAVE_KEY = TEST ? 'litw.forest.test' : 'litw.forest.v1';
+if (TEST) store.removeItem(SAVE_KEY);
+
+/* ------------------------------------------------- fire: the dry-fuel grid -- */
+const fireRng = mulberry32(4242);   // fire/arc randomness, separate stream = deterministic
+const fire = {
+  cells: new Map(),   // k -> { t, spreadAt, out, anchor:[x,y,z], treeIdx, k, reported, smokeAcc }
+  burned: new Set(),  // burned-out cells: the scar record (this IS the save file)
+  contained: false,
+  outbreak: 0,        // cells this outbreak has claimed (burning + burned)
+  SPEED: 1,           // test hook: multiplies fire timers
+};
+const WIND = { angle: fireRng() * Math.PI * 2, speed: 0.75, t: 0 };
+
+// fuel map: each cell's anchor tree (the tree that torches) + trees close to it
+const cellAnchor = new Int32Array(GRID_N * GRID_N).fill(-1);
+const cellTreeList = {};
+let fuelTotal = 0;
+(function buildFuel() {
+  const bestD = new Float32Array(GRID_N * GRID_N).fill(1e9);
+  for (let ti = 0; ti < treePositions.length; ti++) {
+    const [x, z] = treePositions[ti];
+    const i = Math.floor((x + GRID_EXTENT / 2) / CELL), j = Math.floor((z + GRID_EXTENT / 2) / CELL);
+    if (i < 0 || j < 0 || i >= GRID_N || j >= GRID_N) continue;
+    const k = i * GRID_N + j;
+    const [cx, cz] = cellCenter(i, j);
+    const d = (x - cx) * (x - cx) + (z - cz) * (z - cz);
+    if (d < bestD[k]) { bestD[k] = d; cellAnchor[k] = ti; }
+    (cellTreeList[k] = cellTreeList[k] || []).push(ti);
+  }
+  for (let k = 0; k < cellAnchor.length; k++) if (cellAnchor[k] >= 0) fuelTotal++;
+})();
+function cellIndexFor(x, z) {
+  const i = clamp(Math.floor((x + GRID_EXTENT / 2) / CELL), 0, GRID_N - 1);
+  const j = clamp(Math.floor((z + GRID_EXTENT / 2) / CELL), 0, GRID_N - 1);
+  return i * GRID_N + j;
+}
+function cellHasFuel(k) { return cellAnchor[k] >= 0 && !fire.burned.has(k) && !fire.cells.has(k); }
+function forestHealth() {
+  const h = 100 * (1 - fire.burned.size / Math.max(1, fuelTotal));
+  return fire.burned.size ? Math.min(99, Math.floor(h)) : 100;
+}
+
+function igniteCell(k) {
+  if (!cellHasFuel(k)) return false;
+  const fresh = fire.cells.size === 0;
+  if (fresh) { fire.outbreak = 0; fire.contained = false; }
+  fire.outbreak++;
+  const ti = cellAnchor[k];
+  const [x, z] = treePositions[ti];
+  fire.cells.set(k, {
+    t: 0,
+    // L1 is generous: the FIRST tree smolders alone for over a minute
+    spreadAt: fresh ? 70 : 20 + fireRng() * 12,
+    out: fresh ? 84 : 36 + fireRng() * 10,
+    anchor: [x, terrainH(x, z), z],
+    treeIdx: ti, k, reported: false, smokeAcc: 0,
+  });
+  Events.emit('ignite', { k, fresh });
+  return true;
+}
+function igniteNear(x, z) {
+  const k0 = cellIndexFor(x, z);
+  if (cellHasFuel(k0)) { igniteCell(k0); return k0; }
+  const i0 = Math.floor(k0 / GRID_N), j0 = k0 % GRID_N;
+  for (let r = 1; r < 9; r++) {
+    for (let di = -r; di <= r; di++) for (let dj = -r; dj <= r; dj++) {
+      if (Math.max(Math.abs(di), Math.abs(dj)) !== r) continue;
+      const i = i0 + di, j = j0 + dj;
+      if (i < 0 || j < 0 || i >= GRID_N || j >= GRID_N) continue;
+      const k = i * GRID_N + j;
+      if (cellHasFuel(k)) { igniteCell(k); return k; }
+    }
+  }
+  return -1;
+}
+
+const NBR = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+function fireStep(dt) {
+  WIND.t += dt;
+  WIND.angle += Math.sin(WIND.t * 0.05 + 1.7) * 0.0009 + Math.sin(WIND.t * 0.013) * 0.0014;
+  const wx = Math.sin(WIND.angle), wz = Math.cos(WIND.angle);
+  const done = [];
+  for (const [k, c] of fire.cells) {
+    c.t += dt * fire.SPEED;
+    if (!fire.contained && c.t >= c.spreadAt && fire.outbreak < 14) {
+      c.spreadAt += 18 + fireRng() * 12;
+      // downwind-weighted pick among dry-fuel neighbours (i axis = x, j axis = z)
+      const i0 = Math.floor(k / GRID_N), j0 = k % GRID_N;
+      let sum = 0; const cand = [];
+      for (const [di, dj] of NBR) {
+        const i = i0 + di, j = j0 + dj;
+        if (i < 0 || j < 0 || i >= GRID_N || j >= GRID_N) continue;
+        const kn = i * GRID_N + j;
+        if (!cellHasFuel(kn)) continue;
+        const il = Math.hypot(di, dj);
+        const w = 1 + 3 * Math.max(0, (di / il) * wx + (dj / il) * wz);
+        cand.push([kn, w]); sum += w;
+      }
+      if (cand.length) {
+        let r = fireRng() * sum;
+        for (const [kn, w] of cand) { r -= w; if (r <= 0) { igniteCell(kn); break; } }
+      }
+    }
+    if (c.t >= c.out) done.push(k);
+  }
+  for (const k of done) burnOutCell(k);
+}
+const _cm = new THREE.Matrix4(), _cp = new THREE.Vector3(), _cq = new THREE.Quaternion(), _cs = new THREE.Vector3();
+const CHAR_COLOR = new THREE.Color(0x18130e);
+function applyBurnVisual(k) {
+  const ti = cellAnchor[k];
+  if (ti < 0) return;
+  const [ax, az] = [treePositions[ti][0], treePositions[ti][1]];
+  for (const t of (cellTreeList[k] || [])) {
+    const [tx, tz] = treePositions[t];
+    if (t !== ti && (tx - ax) * (tx - ax) + (tz - az) * (tz - az) > 4.5 * 4.5) continue;
+    trees.setColorAt(t, CHAR_COLOR);
+    trees.getMatrixAt(t, _cm);
+    _cm.decompose(_cp, _cq, _cs);
+    _cs.set(_cs.x * 0.7, _cs.y * 0.45, _cs.z * 0.7);   // a snag, not a pine
+    _cm.compose(_cp, _cq, _cs);
+    trees.setMatrixAt(t, _cm);
+  }
+  trees.instanceColor.needsUpdate = true;
+  trees.instanceMatrix.needsUpdate = true;
+  addScorch(ax, az);
+}
+function burnOutCell(k) {
+  fire.cells.delete(k);
+  fire.burned.add(k);
+  applyBurnVisual(k);
+  if (fire.cells.size === 0) fire.contained = false;
+  saveForest();
+  Events.emit('burnout', { k });
+}
+
+/* ------------------------------------------------- scorch decals (persist) -- */
+const SCORCH_MAX = 240;
+let scorchCount = 0;
+const scorch = (function () {
+  const cnv = document.createElement('canvas'); cnv.width = cnv.height = 64;
+  const ctx = cnv.getContext('2d');
+  const g = ctx.createRadialGradient(32, 32, 3, 32, 32, 31);
+  g.addColorStop(0, 'rgba(10,7,5,0.94)');
+  g.addColorStop(0.6, 'rgba(15,10,7,0.7)');
+  g.addColorStop(1, 'rgba(18,12,9,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+  const geo = new THREE.PlaneGeometry(1, 1); geo.rotateX(-Math.PI / 2);
+  const mesh = new THREE.InstancedMesh(geo,
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cnv), transparent: true, depthWrite: false }),
+    SCORCH_MAX);
+  mesh.count = 0; mesh.renderOrder = 2; mesh.name = 'scorch';
+  scene.add(mesh);
+  return mesh;
+})();
+function addScorch(x, z) {
+  if (scorchCount >= SCORCH_MAX) return;
+  const s = 9 + fireRng() * 4;
+  _cm.compose(new THREE.Vector3(x, terrainH(x, z) + 0.35, z), _cq.identity(), new THREE.Vector3(s, 1, s));
+  scorch.setMatrixAt(scorchCount++, _cm);
+  scorch.count = scorchCount;
+  scorch.instanceMatrix.needsUpdate = true;
+}
+
+/* --------------------------------------------------- flame + smoke visuals -- */
+const FLAME_MAX = 8;
+const flamePool = [];
+(function buildFlames() {
+  for (let n = 0; n < FLAME_MAX; n++) {
+    const g = new THREE.Group();
+    const mk = (r, h, col, op, y, name) => {
+      const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7),
+        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false }));
+      m.position.y = y; m.name = name; return m;
+    };
+    g.add(mk(1.35, 3.6, 0xff5a18, 0.7, 1.8, 'outer'));
+    g.add(mk(0.7, 2.2, 0xffc93a, 0.9, 1.35, 'inner'));
+    const ember = new THREE.Mesh(new THREE.SphereGeometry(0.85, 8, 6),
+      new THREE.MeshBasicMaterial({ color: 0xff7a22, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false }));
+    ember.position.y = 0.5;
+    g.add(ember);
+    g.visible = false;
+    scene.add(g);
+    flamePool.push(g);
+  }
+})();
+const fireLightA = new THREE.PointLight(0xff8033, 0, 48, 2);
+const fireLightB = new THREE.PointLight(0xff7028, 0, 42, 2);
+scene.add(fireLightA, fireLightB);
+
+const SMOKE_MAX = 150;
+const smokeParts = [];
+const smokeMesh = (function () {
+  const cnv = document.createElement('canvas'); cnv.width = cnv.height = 64;
+  const ctx = cnv.getContext('2d');
+  const g = ctx.createRadialGradient(32, 32, 4, 32, 32, 30);
+  g.addColorStop(0, 'rgba(255,255,255,0.55)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+  const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cnv), transparent: true, depthWrite: false, opacity: 0.85 }),
+    SMOKE_MAX);
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  mesh.renderOrder = 6; mesh.frustumCulled = false; mesh.name = 'smoke';
+  const grey = new THREE.Color(0x8d8781);
+  for (let i = 0; i < SMOKE_MAX; i++) {
+    smokeParts.push({ alive: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, age: 0, life: 1 });
+    mesh.setColorAt(i, grey);
+    _cm.compose(new THREE.Vector3(0, -100, 0), _cq.identity(), new THREE.Vector3(0.001, 0.001, 0.001));
+    mesh.setMatrixAt(i, _cm);
+  }
+  scene.add(mesh);
+  return mesh;
+})();
+function spawnSmoke(c) {
+  for (let i = 0; i < SMOKE_MAX; i++) {
+    const p = smokeParts[i];
+    if (p.alive) continue;
+    const sc = treePositions[c.treeIdx][2] || 1;
+    p.alive = true;
+    p.x = c.anchor[0] + (Math.random() - 0.5) * 1.6;
+    p.y = c.anchor[1] + 6.5 * sc;
+    p.z = c.anchor[2] + (Math.random() - 0.5) * 1.6;
+    const wS = 0.9 + WIND.speed;
+    p.vx = Math.sin(WIND.angle) * wS + (Math.random() - 0.5) * 0.4;
+    p.vz = Math.cos(WIND.angle) * wS + (Math.random() - 0.5) * 0.4;
+    p.vy = 2.3 + Math.random() * 0.9;
+    p.age = 0; p.life = 9 + Math.random() * 4.5;
+    return;
+  }
+}
+function smokeLive() { let n = 0; for (const p of smokeParts) if (p.alive) n++; return n; }
+
+function fireVisualStep(dt) {
+  // flames ride the first N burning cells
+  let fi = 0;
+  for (const [, c] of fire.cells) {
+    c.smokeAcc += dt * 3.4;
+    while (c.smokeAcc > 1) { c.smokeAcc -= 1; spawnSmoke(c); }
+    if (fi < FLAME_MAX) {
+      const f = flamePool[fi++];
+      f.visible = true;
+      const sc = (treePositions[c.treeIdx][2] || 1);
+      f.position.set(c.anchor[0], c.anchor[1], c.anchor[2]);
+      const flick = 1 + 0.16 * Math.sin(state.time * 12 + c.k * 1.7) + 0.09 * Math.sin(state.time * 29 + c.k);
+      f.scale.set(1.35 * sc, 1.35 * sc * flick, 1.35 * sc);
+    }
+  }
+  for (; fi < FLAME_MAX; fi++) flamePool[fi].visible = false;
+  // two shared ember lights: first burning cell + the one nearest the player
+  const cs = Array.from(fire.cells.values());
+  const flickL = 1.5 + 0.55 * Math.sin(state.time * 9.3) + 0.3 * Math.sin(state.time * 23);
+  if (cs.length) {
+    fireLightA.position.set(cs[0].anchor[0], cs[0].anchor[1] + 3, cs[0].anchor[2]);
+    fireLightA.intensity = flickL;
+    let near = null, nd = 1e9;
+    for (const c of cs) {
+      const d = Math.hypot(c.anchor[0] - player.pos.x, c.anchor[2] - player.pos.z);
+      if (d < nd) { nd = d; near = c; }
+    }
+    if (near && near !== cs[0]) {
+      fireLightB.position.set(near.anchor[0], near.anchor[1] + 3, near.anchor[2]);
+      fireLightB.intensity = flickL * 0.85;
+    } else fireLightB.intensity = 0;
+  } else { fireLightA.intensity = 0; fireLightB.intensity = 0; }
+  // smoke particles: rise, drift, grow — the column you can read across the valley
+  let dirty = false;
+  for (let i = 0; i < SMOKE_MAX; i++) {
+    const p = smokeParts[i];
+    if (!p.alive) continue;
+    p.age += dt;
+    if (p.age >= p.life) {
+      p.alive = false;
+      _cm.compose(_cp.set(0, -100, 0), _cq.identity(), _cs.set(0.001, 0.001, 0.001));
+      smokeMesh.setMatrixAt(i, _cm);
+      dirty = true;
+      continue;
+    }
+    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+    const grow = 1.9 + p.age * 0.95;
+    const s = grow * smoothstep(0, 0.7, p.age) * (1 - smoothstep(p.life - 2.6, p.life, p.age));
+    _cm.compose(_cp.set(p.x, p.y, p.z), camera.quaternion, _cs.set(Math.max(0.001, s), Math.max(0.001, s), 1));
+    smokeMesh.setMatrixAt(i, _cm);
+    dirty = true;
+  }
+  if (dirty) smokeMesh.instanceMatrix.needsUpdate = true;
+  // fire beacon: holds the first CONFIRMED (drone-reported) burning cell
+  let rep = null;
+  for (const [, c] of fire.cells) if (c.reported) { rep = c; break; }
+  if (rep) {
+    fireBeacon.visible = true;
+    fireBeacon.position.set(rep.anchor[0], rep.anchor[1], rep.anchor[2]);
+    fireBeacon.children[0].material.opacity = 0.16 + 0.08 * Math.sin(state.time * 3.4);
+  } else fireBeacon.visible = false;
+}
+
+/* --------------------------------------------- detection: drones that see -- */
+function makeSignalBeacon(color) {
+  const g = new THREE.Group();
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.5, 44, 10, 1, true),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  beam.position.y = 22;
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(2.6, 0.14, 6, 24),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55 }));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.6;
+  g.add(beam, ring);
+  g.visible = false;
+  scene.add(g);
+  return g;
+}
+const fireBeacon = makeSignalBeacon(0xff5544);
+const hikerBeacon = makeSignalBeacon(0xffb84a);
+function detectRadius() { return lerp(95, 30, clock.nightK); }   // night = camera-blind
+let detectT = 0;
+function detectStep(dt) {
+  detectT += dt;
+  if (detectT < 0.4) return;
+  detectT = 0;
+  const dr = detectRadius();
+  for (const [k, c] of fire.cells) {
+    if (c.reported) continue;
+    for (const st of stations) {
+      if (!st.drone.visible || !st.coverage.cells.has(k)) continue;
+      if (Math.hypot(st.drone.position.x - c.anchor[0], st.drone.position.z - c.anchor[2]) < dr) {
+        c.reported = true;
+        toast('SMOKE CONFIRMED — hike in and cut it off', 'alert');
+        pingSound();
+        if (arc.phase === 'smoke' && !arc.cineDone) { startCine(c.anchor); arc.smokeReported = true; }
+        Events.emit('detect', { type: 'fire', k });
+        break;
+      }
+    }
+  }
+  if (hiker.active && !hiker.marked && !hiker.rescued) {
+    const k = cellIndexFor(hiker.pos.x, hiker.pos.z);
+    for (const st of stations) {
+      if (!st.drone.visible || !st.coverage.cells.has(k)) continue;
+      if (Math.hypot(st.drone.position.x - hiker.pos.x, st.drone.position.z - hiker.pos.z) < dr) {
+        hiker.marked = true;
+        hikerBeacon.visible = true;
+        hikerBeacon.position.copy(hiker.pos);
+        toast('SIGNAL — the drone holds a mark on a light in the pines', 'good');
+        pingSound();
+        Events.emit('detect', { type: 'hiker', k });
+        break;
+      }
+    }
+  }
+}
+
+/* ------------------------------------------- firebreak: the hold minigame -- */
+const firebreak = { progress: 0 };
+function nearestBurning(px, pz, maxD) {
+  let best = null, bd = maxD;
+  for (const [, c] of fire.cells) {
+    const d = Math.hypot(px - c.anchor[0], pz - c.anchor[2]);
+    if (d < bd) { bd = d; best = c; }
+  }
+  return best;
+}
+function firebreakStep(dt) {
+  const pt = state.promptTarget;
+  if (pt && pt.type === 'firebreak') {
+    P2E.fbRing.style.display = 'inline';
+    const holding = keys['KeyE'] || input.actHold;
+    firebreak.progress = clamp(firebreak.progress + (holding ? dt / 3.6 : -dt / 1.6), 0, 1);
+    P2E.fbArc.style.strokeDashoffset = String(62.83 * (1 - firebreak.progress));
+    if (firebreak.progress >= 1) {
+      firebreak.progress = 0;
+      fire.contained = true;
+      // a starved fire gutters out fast
+      for (const [, c] of fire.cells) c.out = Math.min(c.out, c.t + 10);
+      toast('FIREBREAK CUT — the fire has nowhere left to go', 'good');
+      Events.emit('firebreak', { cells: fire.cells.size });
+    }
+  } else {
+    firebreak.progress = 0;
+    P2E.fbRing.style.display = 'none';
+  }
+}
+
+/* -------------------------------------------------------- day/night clock -- */
+const clock = {
+  t: 0, day: 1, nightK: 0, DAY: 420, NIGHT: 130, label: 'DUSK',
+  set(sec) { this.t = sec; },
+};
+function clockStep(dt) {
+  const CYC = clock.DAY + clock.NIGHT;
+  clock.t += dt;
+  if (clock.t >= CYC) { clock.t -= CYC; clock.day++; Events.emit('dawn', { day: clock.day }); }
+  const p = clock.t;
+  clock.nightK = clamp(smoothstep(clock.DAY - 10, clock.DAY + 14, p) - smoothstep(CYC - 16, CYC - 2, p), 0, 1);
+  clock.label = p < clock.DAY - 10 ? 'DUSK' : (p < CYC - 16 ? 'NIGHT' : 'DAWN');
+}
+const LN = {
+  sunDay: new THREE.Color(0xffb070), sunNight: new THREE.Color(0x7f8fc8),
+  hemiSkyDay: new THREE.Color(0x4a4f80), hemiSkyNight: new THREE.Color(0x1d2242),
+  hemiGndDay: new THREE.Color(0x5a4030), hemiGndNight: new THREE.Color(0x14121e),
+  fogDay: new THREE.Color(0x6e4a63), fogNight: new THREE.Color(0x141628),
+  skyTopDay: new THREE.Color(0x1c2148), skyTopNight: new THREE.Color(0x05060f),
+  skyMidDay: new THREE.Color(0x53406e), skyMidNight: new THREE.Color(0x0c1024),
+  skyHorDay: new THREE.Color(0xff9455), skyHorNight: new THREE.Color(0x1b2138),
+  sunColDay: new THREE.Color(0xffdaa0), sunColNight: new THREE.Color(0x9fb2dd),
+};
+function applyNight() {
+  const n = clock.nightK;
+  sun.intensity = lerp(1.25, 0.1, n);
+  sun.color.lerpColors(LN.sunDay, LN.sunNight, n);
+  hemi.intensity = lerp(0.55, 0.22, n);
+  hemi.color.lerpColors(LN.hemiSkyDay, LN.hemiSkyNight, n);
+  hemi.groundColor.lerpColors(LN.hemiGndDay, LN.hemiGndNight, n);
+  scene.fog.color.lerpColors(LN.fogDay, LN.fogNight, n);
+  renderer.toneMappingExposure = lerp(1.12, 0.94, n);
+  const u = sky.material.uniforms;
+  u.top.value.lerpColors(LN.skyTopDay, LN.skyTopNight, n);
+  u.mid.value.lerpColors(LN.skyMidDay, LN.skyMidNight, n);
+  u.hor.value.lerpColors(LN.skyHorDay, LN.skyHorNight, n);
+  u.sunCol.value.lerpColors(LN.sunColDay, LN.sunColNight, n);
+}
+
+/* ----------------------------------------------------- the hiker (rescue) -- */
+const hiker = {
+  active: false, rescued: false, done: false, marked: false,
+  pos: new THREE.Vector3(), group: null, fadeT: 0, cryT: 2.5,
+};
+function makeHikerMesh() {
+  const g = new THREE.Group();
+  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.95, flatShading: true });
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.4, 3, 8), mat(0x3f5570));
+  torso.position.y = 0.55; torso.rotation.x = 0.35;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 8), mat(0xd8a880));
+  head.position.set(0, 1.0, 0.12);
+  const legs = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.22, 0.7), mat(0x2f3542));
+  legs.position.set(0, 0.14, 0.32);
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 6),
+    new THREE.MeshBasicMaterial({ color: 0xffe9b0 }));
+  lamp.position.set(0, 1.05, 0.28); lamp.name = 'lamp';
+  const light = new THREE.PointLight(0xffd9a0, 0, 26, 2);
+  light.position.set(0, 1.2, 0.3); light.name = 'lampLight';
+  for (const m of [torso, head, legs]) m.castShadow = true;
+  g.add(torso, head, legs, lamp, light);
+  return g;
+}
+function spawnHiker() {
+  if (hiker.active || hiker.done) return false;
+  let x = -120, z = -60;
+  for (let i = 0; i < 60; i++) {
+    const a = fireRng() * Math.PI * 2, d = 110 + fireRng() * 60;
+    const tx = clamp(player.pos.x + Math.sin(a) * d, -270, 270);
+    const tz = clamp(player.pos.z + Math.cos(a) * d, -270, 270);
+    if (treeDensity(tx, tz) > 0.25) { x = tx; z = tz; break; }
+  }
+  hiker.pos.set(x, terrainH(x, z), z);
+  hiker.group = makeHikerMesh();
+  hiker.group.position.copy(hiker.pos);
+  hiker.group.rotation.y = fireRng() * Math.PI * 2;
+  scene.add(hiker.group);
+  hiker.active = true; hiker.rescued = false; hiker.marked = false; hiker.cryT = 2.5;
+  toast('A thin voice on the wind. Someone is out there.', 'alert');
+  setObjective('Someone is lost out there. Follow the light — and the voice.');
+  Events.emit('hikerSignal', { x, z });
+  return true;
+}
+function rescueHiker() {
+  if (!hiker.active || hiker.rescued) return;
+  hiker.rescued = true; hiker.done = true; hiker.fadeT = 0;
+  score.add(250);
+  warmK = 1;
+  hikerBeacon.visible = false;
+  toast('He is cold, but okay. You walk him back to the trail.', 'good');
+  setObjective(arc.phase === 'endless' ? 'The watch holds. The forest keeps breathing.' : 'Back to the watch.');
+  rescueChord();
+  saveForest();
+  Events.emit('rescue', {});
+}
+function hikerStep(dt) {
+  if (!hiker.active) return;
+  const lamp = hiker.group.getObjectByName('lamp');
+  const light = hiker.group.getObjectByName('lampLight');
+  if (!hiker.rescued) {
+    const on = (state.time % 1.7) < 0.55;   // a weak headlamp, flashed to be found
+    light.intensity = on ? 1.1 + clock.nightK * 1.6 : 0;
+    lamp.material.color.setHex(on ? 0xffe9b0 : 0x4a4234);
+    if (hiker.marked) hikerBeacon.children[0].material.opacity = 0.16 + 0.08 * Math.sin(state.time * 3.4);
+  } else {
+    hiker.fadeT += dt;
+    light.intensity = Math.max(0, 1.2 - hiker.fadeT);
+    if (hiker.fadeT > 5) {
+      scene.remove(hiker.group);
+      hiker.active = false;
+    }
+  }
+}
+
+/* ----------------------------------------------------- salvage cache two -- */
+const cache2 = { spawned: false, salvaged: false, x: -152, z: -95, group: null };
+function spawnCache2() {
+  if (cache2.spawned) return;
+  cache2.spawned = true;
+  const g = new THREE.Group();
+  g.position.set(cache2.x, terrainH(cache2.x, cache2.z), cache2.z);
+  const crate = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.0, 1.0),
+    new THREE.MeshStandardMaterial({ color: 0x6a7078, roughness: 0.85 }));
+  crate.position.y = 0.5; crate.castShadow = true;
+  const tarp = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.12, 1.3),
+    new THREE.MeshStandardMaterial({ color: 0xc2622a, roughness: 1 }));
+  tarp.position.y = 1.08; tarp.rotation.z = -0.07;
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.6, 46, 10, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0x9fd8ff, transparent: true, opacity: 0.15, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  beam.position.y = 23; beam.name = 'beacon2';
+  const glow = new THREE.PointLight(0x9fd8ff, 0.9, 24, 2);
+  glow.position.y = 2.2;
+  g.add(crate, tarp, beam, glow);
+  scene.add(g);
+  cache2.group = g;
+}
+function doSalvage2() {
+  if (!cache2.spawned || cache2.salvaged) return;
+  cache2.salvaged = true;
+  inventory.solar++; inventory.droneKit++; inventory.radio++;
+  renderChips();
+  cache2.group.getObjectByName('beacon2').visible = false;
+  toast('RADIO PARTS — the mesh wants a second node', 'good');
+  setObjective('Parts for station two. Site it where the first one is blind.');
+  saveForest();
+  Events.emit('salvage2', {});
+}
+
+/* --------------------------------------- phase 2 interact targets + verbs -- */
+function p2InteractTarget(px, pz) {
+  if (fire.cells.size && !fire.contained) {
+    const c = nearestBurning(px, pz, 16);
+    if (c) return { type: 'firebreak', label: IS_TOUCH ? 'HOLD ● — CUT FIREBREAK' : 'HOLD — CUT FIREBREAK', cell: c };
+  }
+  if (hiker.active && !hiker.rescued) {
+    if (Math.hypot(px - hiker.pos.x, pz - hiker.pos.z) < 5) return { type: 'hiker', label: 'Help him up' };
+  }
+  if (cache2.spawned && !cache2.salvaged) {
+    if (Math.hypot(px - cache2.x, pz - cache2.z) < 5.5) return { type: 'cache2', label: 'Open the supply cache' };
+  }
+  return null;
+}
+function p2Interact(t) {
+  if (t.type === 'hiker') rescueHiker();
+  else if (t.type === 'cache2') doSalvage2();
+}
+
+/* ------------------------------------------------------- the scripted arc -- */
+const arc = {
+  phase: 'wake',        // wake → site → watch → smoke → card → endless
+  auto: !TEST,          // tests drive transitions by hand
+  smokeArmed: false, smokeT: 0, smokeReported: false, cineDone: false,
+  blindT: 0, blindCued: false,
+  cardT: 0, resolveT: 0, hikerT: 0, endlessNextT: 0,
+};
+Events.on('salvage', () => {
+  if (arc.phase === 'wake') arc.phase = 'site';
+});
+Events.on('stationBuilt', () => {
+  if (arc.phase === 'wake' || arc.phase === 'site') arc.phase = 'watch';
+  showWatchInstruments();
+});
+Events.on('droneLaunched', () => {
+  if (arc.phase === 'watch' && !arc.smokeArmed && !arc.cineDone) { arc.smokeArmed = true; arc.smokeT = 0; }
+});
+function showWatchInstruments() {
+  for (const el of [P2E.forestHud, P2E.clockHud, P2E.windHud]) el.style.display = 'block';
+}
+function firstSmoke() {
+  arc.smokeArmed = false;
+  let k = -1;
+  const st = state.builtStation;
+  if (st && st.drone.visible) {
+    // a good site gets its payoff: ignition lands where the drone will confirm it
+    const dr = detectRadius();
+    const cand = [];
+    for (const c of st.coverage.cells) {
+      if (!cellHasFuel(c)) continue;
+      const i = Math.floor(c / GRID_N), j = c % GRID_N;
+      const [cx, cz] = cellCenter(i, j);
+      const dDrone = Math.hypot(cx - st.drone.position.x, cz - st.drone.position.z);
+      const dPlayer = Math.hypot(cx - player.pos.x, cz - player.pos.z);
+      if (dDrone < dr * 0.85 && dPlayer > 40 && dPlayer < 230) cand.push(c);
+    }
+    if (cand.length) k = cand[Math.floor(fireRng() * cand.length)];
+  }
+  if (k < 0) {
+    // a blind site gets its lesson: the fire starts where nothing is watching
+    const cand = [];
+    for (let c = 0; c < GRID_N * GRID_N; c++) {
+      if (!cellHasFuel(c)) continue;
+      let covered = false;
+      for (const s of stations) if (s.coverage.cells.has(c)) { covered = true; break; }
+      if (covered) continue;
+      const i = Math.floor(c / GRID_N), j = c % GRID_N;
+      const [cx, cz] = cellCenter(i, j);
+      const dp = Math.hypot(cx - player.pos.x, cz - player.pos.z);
+      if (dp > 60 && dp < 170) cand.push(c);
+    }
+    if (cand.length) k = cand[Math.floor(fireRng() * cand.length)];
+  }
+  if (k >= 0) igniteCell(k);
+  else k = igniteNear(player.pos.x + 80, player.pos.z);
+  arc.phase = 'smoke'; arc.blindT = 0; arc.blindCued = false; arc.smokeReported = false;
+  setObjective('Smoke. Hike to it — cut the break while it is one tree.');
+  return k;
+}
+const cine = { t: 9, dur: 0, target: new THREE.Vector3() };
+function startCine(anchor) {
+  cine.t = 0; cine.dur = 3.0;
+  cine.target.set(anchor[0], anchor[1] + 16, anchor[2]);
+  arc.cineDone = true;
+}
+function showCard(saved, count) {
+  arc.phase = 'card'; arc.cardT = 0;
+  P2E.card.style.display = 'flex';
+  P2E.cardSub.textContent = saved
+    ? 'One tree. The watch caught it at one tree.'
+    : count + ' trees gone. The scar stays. So does the lesson.';
+  score.add(saved ? 150 : 25);
+  saveForest();
+}
+function dismissCard() {
+  if (arc.phase !== 'card') return;
+  P2E.card.style.display = 'none';
+  startEndless();
+}
+window.addEventListener('keydown', () => { if (arc.phase === 'card' && arc.cardT > 0.8) dismissCard(); });
+window.addEventListener('pointerdown', () => { if (arc.phase === 'card' && arc.cardT > 0.8) dismissCard(); });
+function startEndless() {
+  arc.phase = 'endless';
+  spawnCache2();
+  arc.endlessNextT = 90 + fireRng() * 120;
+  setObjective('The watch holds. A supply cache across the river — parts for a second station.');
+  saveForest();
+}
+function randomIgnite() {
+  // the forest probes your blind spots
+  const blind = [], seen = [];
+  for (let k = 0; k < GRID_N * GRID_N; k++) {
+    if (!cellHasFuel(k)) continue;
+    const i = Math.floor(k / GRID_N), j = k % GRID_N;
+    const [cx, cz] = cellCenter(i, j);
+    const dp = Math.hypot(cx - player.pos.x, cz - player.pos.z);
+    if (dp < 60 || dp > 230) continue;
+    let covered = false;
+    for (const s of stations) if (s.coverage.cells.has(k)) { covered = true; break; }
+    (covered ? seen : blind).push(k);
+  }
+  const pool = (fireRng() < 0.7 && blind.length) ? blind : (seen.length ? seen : blind);
+  if (pool.length) igniteCell(pool[Math.floor(fireRng() * pool.length)]);
+}
+function arcStep(dt) {
+  if (arc.auto && arc.smokeArmed && arc.phase === 'watch') {
+    arc.smokeT += dt;
+    if (arc.smokeT >= 60) firstSmoke();
+  }
+  if (arc.phase === 'smoke') {
+    if (!arc.smokeReported && !arc.blindCued) {
+      arc.blindT += dt;
+      if (arc.blindT > 8) { arc.blindCued = true; toast('You smell smoke on the wind. Scan the valley.', 'alert'); }
+    }
+    if (fire.contained || (fire.cells.size === 0 && fire.outbreak > 0)) {
+      arc.resolveT += dt;
+      if (arc.resolveT > 3.5) { arc.resolveT = 0; showCard(fire.outbreak <= 1, fire.outbreak); }
+    } else arc.resolveT = 0;
+  }
+  if (arc.phase === 'card') arc.cardT += dt;
+  if (arc.phase === 'endless' && arc.auto) {
+    arc.endlessNextT -= dt;
+    if (arc.endlessNextT <= 0) {
+      if (fire.cells.size === 0) { randomIgnite(); arc.endlessNextT = 100 + fireRng() * 140; }
+      else arc.endlessNextT = 45;
+    }
+    if (!hiker.done && !hiker.active && clock.nightK > 0.65) {
+      arc.hikerT += dt;
+      if (arc.hikerT > 12) spawnHiker();
+    }
+  }
+}
+
+/* ----------------------------------------------------------- score + HUD -- */
+const score = {
+  n: 0,
+  add(v) {
+    this.n += v;
+    P2E.scoreVal.textContent = String(this.n);
+    if (this.n > 0) P2E.scoreHud.style.display = 'block';
+  },
+};
+let hudK = 0, softK = 0, warmK = 0, toastT = 99, saveT = 0;
+function toast(msg, kind) {
+  P2E.toast.textContent = msg;
+  P2E.toast.className = 'hudText' + (kind ? ' ' + kind : '');
+  toastT = 0;
+}
+function hudStep(dt) {
+  // wake: soft objective floats alone, the HUD earns its place at the cache
+  if (state.salvaged) hudK = Math.min(1, hudK + dt / 1.6);
+  P2E.objective.style.opacity = String(hudK);
+  softK = arc.phase === 'wake' ? Math.min(1, softK + (state.time > 2.2 ? dt / 1.8 : 0)) : Math.max(0, softK - dt / 1.2);
+  P2E.softObj.style.opacity = String(softK * 0.95);
+  // toast
+  toastT += dt;
+  P2E.toast.style.opacity = String(clamp(Math.min(toastT / 0.3, (4.5 - toastT) / 0.8), 0, 1));
+  // card fade (JS-driven: deterministic under headless capture)
+  if (arc.phase === 'card') P2E.card.style.opacity = String(Math.min(1, arc.cardT / 1.2));
+  // warm beat
+  warmK = Math.max(0, warmK - dt * 0.4);
+  P2E.warm.style.opacity = String(warmK * 0.85);
+  // instruments
+  P2E.forestVal.textContent = forestHealth() + '%';
+  P2E.clockDay.textContent = 'DAY ' + clock.day;
+  P2E.clockPhase.textContent = clock.label;
+  const deg = (cam.yaw + Math.PI - WIND.angle) * 180 / Math.PI;
+  P2E.windArrow.style.transform = 'rotate(' + deg.toFixed(1) + 'deg)';
+  // cinematic look: the camera cuts to the plume when the drone confirms
+  if (cine.t < cine.dur) {
+    cine.t += dt;
+    const w = smoothstep(0, 0.7, cine.t) * (1 - smoothstep(cine.dur - 0.7, cine.dur, cine.t));
+    _cp.copy(cam.look).lerp(cine.target, w);
+    camera.lookAt(_cp);
+  }
+  // autosave heartbeat in the endless watch
+  saveT += dt;
+  if (saveT > 12) { saveT = 0; if (arc.phase === 'endless') saveForest(); }
+}
+
+/* -------------------------------------- WebAudio ambience (all generated) -- */
+const AU = { on: false, ctx: null, master: null, windGain: null, crackleGain: null, birdT: 4, cricketT: 1.5 };
+function initAudio() {
+  if (AU.on || TEST) return;
+  try {
+    const C = window.AudioContext || window.webkitAudioContext;
+    if (!C) return;
+    const ctx = new C();
+    AU.ctx = ctx;
+    AU.master = ctx.createGain(); AU.master.gain.value = 0.42;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -18; comp.knee.value = 14; comp.ratio.value = 7;
+    AU.master.connect(comp); comp.connect(ctx.destination);
+    const len = ctx.sampleRate * 2;
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    // wind bed: noise through a low sigh
+    const wsrc = ctx.createBufferSource(); wsrc.buffer = buf; wsrc.loop = true;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 260; lp.Q.value = 0.5;
+    AU.windGain = ctx.createGain(); AU.windGain.gain.value = 0.045;
+    wsrc.connect(lp); lp.connect(AU.windGain); AU.windGain.connect(AU.master);
+    wsrc.start();
+    // fire crackle: banded noise, gained by proximity
+    const csrc = ctx.createBufferSource(); csrc.buffer = buf; csrc.loop = true; csrc.playbackRate.value = 0.63;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1500; bp.Q.value = 0.6;
+    AU.crackleGain = ctx.createGain(); AU.crackleGain.gain.value = 0;
+    csrc.connect(bp); bp.connect(AU.crackleGain); AU.crackleGain.connect(AU.master);
+    csrc.start();
+    AU.on = true;
+  } catch (e) { /* no audio is fine */ }
+}
+window.addEventListener('pointerdown', () => { initAudio(); if (AU.ctx && AU.ctx.state === 'suspended') AU.ctx.resume(); });
+window.addEventListener('keydown', () => { initAudio(); if (AU.ctx && AU.ctx.state === 'suspended') AU.ctx.resume(); });
+function tone(freq, dur, gain, type, delay, glide) {
+  if (!AU.on) return;
+  const ctx = AU.ctx, t0 = ctx.currentTime + (delay || 0);
+  const o = ctx.createOscillator();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(freq, t0);
+  if (glide) o.frequency.linearRampToValueAtTime(Math.max(60, freq + glide), t0 + dur);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.linearRampToValueAtTime(gain, t0 + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g); g.connect(AU.master);
+  o.start(t0); o.stop(t0 + dur + 0.06);
+}
+function pingSound() { tone(1175, 0.09, 0.1); tone(1568, 0.16, 0.07, 'sine', 0.08); }
+function rescueChord() { tone(392, 1.0, 0.045); tone(523, 1.0, 0.04, 'sine', 0.05); tone(659, 1.3, 0.05, 'sine', 0.1); }
+function birdChirp() {
+  const f = 2500 + Math.random() * 800;
+  tone(f, 0.08, 0.03, 'sine', 0, 300);
+  tone(f * 1.12, 0.07, 0.025, 'sine', 0.12, 260);
+  if (Math.random() < 0.5) tone(f * 0.94, 0.09, 0.022, 'sine', 0.26, 320);
+}
+function cricket() { tone(4300, 0.025, 0.016, 'triangle'); tone(4300, 0.025, 0.016, 'triangle', 0.07); tone(4300, 0.025, 0.014, 'triangle', 0.14); }
+function cryCall() {
+  const d = Math.hypot(player.pos.x - hiker.pos.x, player.pos.z - hiker.pos.z);
+  const g = 0.15 * clamp(1 - d / 180, 0, 1);
+  if (g < 0.004) return;
+  tone(640, 0.5, g, 'triangle', 0, -170);
+  tone(560, 0.42, g * 0.8, 'triangle', 0.62, -140);
+}
+function audioStep(dt) {
+  if (!AU.on) return;
+  const t = AU.ctx.currentTime;
+  AU.windGain.gain.setTargetAtTime(0.032 + 0.028 * (0.5 + 0.5 * Math.sin(state.time * 0.23)) + WIND.speed * 0.012, t, 0.5);
+  const c = nearestBurning(player.pos.x, player.pos.z, 60);
+  let g = 0;
+  if (c) {
+    const d = Math.hypot(player.pos.x - c.anchor[0], player.pos.z - c.anchor[2]);
+    g = 0.15 * clamp(1 - d / 46, 0, 1) * (0.65 + 0.7 * Math.random());   // pops
+  }
+  AU.crackleGain.gain.setTargetAtTime(g, t, 0.06);
+  AU.birdT -= dt;
+  if (AU.birdT <= 0) { AU.birdT = 3.5 + Math.random() * 6; if (clock.nightK < 0.35) birdChirp(); }
+  AU.cricketT -= dt;
+  if (AU.cricketT <= 0) { AU.cricketT = 0.9 + Math.random() * 0.8; if (clock.nightK > 0.6) cricket(); }
+  if (hiker.active && !hiker.rescued) {
+    hiker.cryT -= dt;
+    if (hiker.cryT <= 0) { hiker.cryT = 6 + Math.random() * 3; cryCall(); }
+  }
+}
+
+/* ------------------------------------ persistence: the forest remembers -- */
+function saveForest() {
+  try {
+    store.setItem(SAVE_KEY, JSON.stringify({
+      v: 1,
+      burned: Array.from(fire.burned),
+      stations: stations.map(s => s.pad.id),
+      inv: { solar: inventory.solar, droneKit: inventory.droneKit, map: inventory.map, radio: inventory.radio },
+      day: clock.day, score: score.n,
+      best: Math.max(coveragePercent(), (loadForest() || {}).best || 0),
+      cache2: cache2.salvaged, rescued: hiker.done,
+    }));
+  } catch (e) { /* saving must never crash the watch */ }
+}
+function loadForest() {
+  try { return JSON.parse(store.getItem(SAVE_KEY) || 'null'); } catch (e) { return null; }
+}
+function restoreStation(pad) {
+  if (stationAt(pad)) return;
+  const y = terrainH(pad.x, pad.z);
+  const mesh = makeStationMesh();
+  mesh.position.set(pad.x, y + 0.2, pad.z);
+  scene.add(mesh);
+  const dm = makeDroneMesh();
+  scene.add(dm.group);
+  const wps = [];
+  const R = 95, NWP = 10;
+  for (let k = 0; k < NWP; k++) {
+    const a = (k / NWP) * Math.PI * 2;
+    const wx = pad.x + Math.cos(a) * R, wz = pad.z + Math.sin(a) * R;
+    wps.push(new THREE.Vector3(wx, Math.max(terrainH(wx, wz) + 20, y + 22), wz));
+  }
+  dm.group.position.copy(wps[0]);
+  dm.group.visible = true;
+  const cov = coverageFor(pad);
+  const st = {
+    pad, mesh, drone: dm.group, rotors: dm.rotors,
+    wps, wpIdx: 0, phase: 'patrol', phaseT: 0,
+    coverage: cov, revealed: new Set(cov.cells),
+  };
+  for (const c of cov.cells) fogTarget[c] = 0;
+  stations.push(st);
+  if (!state.builtStation) state.builtStation = st;
+  const gi = PADS.indexOf(pad);
+  padMarkers[gi].getObjectByName('pillar').visible = false;
+  padMarkers[gi].getObjectByName('ring').visible = false;
+  HUD.coverage.style.display = 'block';
+}
+let restored = false;
+function restoreForest() {
+  const data = loadForest();
+  if (!data || data.v !== 1) return;
+  if (Array.isArray(data.burned)) {
+    for (const k of data.burned) {
+      if (fire.burned.has(k)) continue;
+      fire.burned.add(k);
+      applyBurnVisual(k);   // the scar was always there
+    }
+  }
+  if (Array.isArray(data.stations) && data.stations.length) {
+    restored = true;
+    state.salvaged = true;
+    if (data.inv) { inventory.solar = data.inv.solar | 0; inventory.droneKit = data.inv.droneKit | 0; inventory.map = data.inv.map | 0; inventory.radio = data.inv.radio | 0; }
+    renderChips();
+    cacheGroup.getObjectByName('beacon').visible = false;
+    for (const g of padMarkers) {
+      g.getObjectByName('pillar').visible = true;
+      g.getObjectByName('ring').visible = true;
+    }
+    for (const id of data.stations) {
+      const pad = PADS.find(p => p.id === id);
+      if (pad) restoreStation(pad);
+    }
+    clock.day = data.day || 1;
+    if (data.score) score.add(data.score);
+    hiker.done = !!data.rescued;
+    arc.phase = 'endless';
+    arc.cineDone = true;
+    arc.endlessNextT = 60 + fireRng() * 90;
+    if (data.cache2) { cache2.spawned = true; cache2.salvaged = true; }
+    else spawnCache2();
+    hudK = 1;
+    showWatchInstruments();
+    setObjective('The forest remembers you. The watch resumes.');
+  }
+}
+
+/* ------------------------------------------------------ phase 2 heartbeat -- */
+Events.on('tick', (dt) => {
+  clockStep(dt);
+  applyNight();
+  fireStep(dt);
+  fireVisualStep(dt);
+  detectStep(dt);
+  firebreakStep(dt);
+  hikerStep(dt);
+  arcStep(dt);
+  hudStep(dt);
+  audioStep(dt);
+});
+(function p2Init() {
+  if (!TEST) restoreForest();
+  if (!restored) P2E.objective.style.opacity = '0';   // WAKE: no HUD yet
+})();
+
+Object.assign(G, {
+  fire, WIND, igniteCell, igniteNear, cellIndexFor, cellHasFuel, cellAnchor, fuelTotal,
+  firebreak, clock, detectRadius, arc, firstSmoke, showCard, dismissCard, forestHealth,
+  hiker, spawnHiker, rescueHiker, cache2, spawnCache2, doSalvage2,
+  saveForest, loadForest, SAVE_KEY, store, score, stationAt, restoreStation,
+  flamePool, smokeParts, smokeLive, scorchMesh: scorch, sun, toast,
+});
 
 /* ----------------------------------------------------------- test suite -- */
 function T(name, fn) {
@@ -1477,6 +2455,142 @@ async function runTests() {
     for (const c of st.revealed) if (fogState[c] < 0.5) shrunk++;
     assert(shrunk > 5, 'fog quads not shrinking');
     return pct + '% coverage, ' + st.revealed.size + ' cells revealed';
+  });
+  await raf();
+
+  T('fire ignites: one tree torches, smoke rises', () => {
+    const k = G.igniteNear(-140, -40);   // deep west forest, fuel everywhere
+    assert(k >= 0, 'no fuel cell found');
+    assert(G.fire.cells.size === 1, 'burning cells: ' + G.fire.cells.size);
+    assert(G.fire.outbreak === 1, 'outbreak count wrong');
+    G.step(120);   // 2s: flames assigned, smoke column forming
+    assert(G.flamePool.some(f => f.visible), 'no flame visible');
+    assert(G.smokeLive() > 3, 'no smoke column: ' + G.smokeLive());
+    return 'cell ' + k + ' burning, ' + G.smokeLive() + ' smoke puffs';
+  });
+  await raf();
+
+  T('fire spreads over dry fuel (wind-driven)', () => {
+    G.fire.SPEED = 30;   // test hook: compress the minutes of grace
+    let guard = 0;
+    const b0 = G.fire.burned.size;
+    while (G.fire.cells.size + (G.fire.burned.size - b0) < 2 && guard++ < 600) G.step(1);
+    const total = G.fire.cells.size + (G.fire.burned.size - b0);
+    assert(total >= 2, 'never spread: ' + total);
+    assert(G.fire.outbreak >= 2, 'outbreak not counting: ' + G.fire.outbreak);
+    return 'outbreak at ' + G.fire.outbreak + ' cells, wind ' + Math.round(G.WIND.angle * 180 / Math.PI) + '°';
+  });
+  await raf();
+
+  T('firebreak: hold E, fire starves, scars persist in-world', () => {
+    assert(G.fire.cells.size > 0, 'nothing burning to cut off');
+    G.fire.SPEED = 2;   // slow to hold-able pace: a real player holds 3.6s at the edge
+    keys['KeyE'] = true;
+    let guard = 0;
+    while (!G.fire.contained && guard++ < 12) {
+      const c = Array.from(G.fire.cells.values())[0];
+      G.teleport(c.anchor[0] + 6, c.anchor[2] + 6);
+      G.step(60);   // one second of holding at the fire edge
+      assert(!state.promptTarget || state.promptTarget.type === 'firebreak' || G.fire.contained,
+        'prompt is ' + (state.promptTarget && state.promptTarget.type));
+    }
+    keys['KeyE'] = false;
+    assert(G.fire.contained, 'firebreak never completed');
+    G.fire.SPEED = 30;   // fast-forward the starved fire guttering out
+    guard = 0;
+    while (G.fire.cells.size > 0 && guard++ < 1500) G.step(1);
+    G.fire.SPEED = 1;
+    assert(G.fire.cells.size === 0, 'fire did not starve: ' + G.fire.cells.size + ' cells');
+    assert(G.fire.burned.size >= 1, 'no scar recorded');
+    assert(G.scorchMesh.count === G.fire.burned.size, 'scorch decals ' + G.scorchMesh.count + ' != burned ' + G.fire.burned.size);
+    return G.fire.burned.size + ' cells scarred, forest ' + G.forestHealth() + '%';
+  });
+  await raf();
+
+  T('scorch persists: the forest writes + reads its save', () => {
+    const burned = Array.from(G.fire.burned);
+    assert(burned.length >= 1, 'nothing burned to persist');
+    G.saveForest();
+    const raw = G.store.getItem(G.SAVE_KEY);
+    assert(raw, 'no save written');
+    const data = JSON.parse(raw);
+    assert(Array.isArray(data.burned) && data.burned.length === burned.length, 'burned cells not persisted');
+    for (const k of burned) assert(data.burned.indexOf(k) >= 0, 'scar cell ' + k + ' missing from save');
+    assert(data.stations && data.stations[0] === 'ridge', 'station not persisted');
+    const again = G.loadForest();   // reload-simulate: fresh read of the save file
+    assert(again && again.burned.length === burned.length && again.stations[0] === 'ridge', 'reload read failed');
+    return burned.length + ' scars + ridge station survive reload';
+  });
+  await raf();
+
+  T('day/night clock turns', () => {
+    assert(G.clock.nightK < 0.05, 'should still be daylight watch');
+    const dayI = sun.intensity;
+    G.clock.set(G.clock.DAY + 30);   // jump into the first night
+    G.step(30);
+    assert(G.clock.nightK > 0.9, 'nightK ' + G.clock.nightK.toFixed(2));
+    assert(G.clock.label === 'NIGHT', 'label ' + G.clock.label);
+    assert(sun.intensity < dayI * 0.4, 'night did not darken: ' + sun.intensity.toFixed(2));
+    return 'sun ' + dayI.toFixed(2) + ' → ' + sun.intensity.toFixed(2) + ' at night';
+  });
+  await raf();
+
+  T('night shrinks drone detection (camera-blind)', () => {
+    const rNight = G.detectRadius();
+    G.clock.set(60); G.step(4);
+    const rDay = G.detectRadius();
+    assert(rNight < rDay * 0.45, 'no shrink: day ' + rDay.toFixed(0) + ' night ' + rNight.toFixed(0));
+    G.clock.set(G.clock.DAY + 40); G.step(4);   // back to night for the hiker
+    return Math.round(rDay) + 'm by day → ' + Math.round(rNight) + 'm by night';
+  });
+  await raf();
+
+  T('night hiker: signal, walk to him, rescue', () => {
+    const ok = G.spawnHiker();
+    assert(ok && G.hiker.active, 'hiker did not spawn');
+    assert(G.hiker.group.getObjectByName('lampLight'), 'no headlamp');
+    G.step(40);   // give the drone a chance to mark him (blind is also valid)
+    const s0 = G.score.n;
+    G.teleport(G.hiker.pos.x + 2, G.hiker.pos.z + 2);
+    G.step(5);
+    assert(state.promptTarget && state.promptTarget.type === 'hiker', 'no rescue prompt: ' + (state.promptTarget && state.promptTarget.type));
+    tryInteract();
+    G.step(5);
+    assert(G.hiker.rescued, 'not rescued');
+    assert(G.score.n === s0 + 250, 'points not awarded: ' + G.score.n);
+    return (G.hiker.marked ? 'drone marked him' : 'found by eye') + ', +250 points';
+  });
+  await raf();
+
+  T('first smoke → firebreak → card → endless watch', () => {
+    G.clock.set(100); G.step(4);   // daylight again
+    G.teleport(100, 0);            // below the ridge, inside the watch
+    assert(G.arc.phase === 'watch', 'arc should be on watch, is ' + G.arc.phase);
+    const k = G.firstSmoke();
+    assert(G.arc.phase === 'smoke', 'no smoke phase');
+    assert(k >= 0 && G.fire.cells.size >= 1, 'first smoke did not ignite');
+    assert(stations[0].coverage.cells.has(k), 'scripted smoke should land inside ridge coverage');
+    G.fire.SPEED = 2;
+    keys['KeyE'] = true;
+    let guard = 0;
+    while (!G.fire.contained && G.fire.cells.size > 0 && guard++ < 12) {
+      const c = Array.from(G.fire.cells.values())[0];
+      G.teleport(c.anchor[0] + 6, c.anchor[2] + 6);
+      G.step(60);
+    }
+    keys['KeyE'] = false;
+    assert(G.fire.contained, 'could not contain first smoke');
+    G.fire.SPEED = 30;
+    guard = 0;
+    while (G.arc.phase !== 'card' && guard++ < 1500) G.step(1);
+    G.fire.SPEED = 1;
+    assert(G.arc.phase === 'card', 'card never showed: ' + G.arc.phase);
+    const savedRun = G.fire.outbreak <= 1;
+    G.dismissCard();
+    assert(G.arc.phase === 'endless', 'endless not unlocked: ' + G.arc.phase);
+    assert(G.cache2.spawned, 'salvage cache 2 missing');
+    assert(G.arc.endlessNextT > 0, 'random ignitions not armed');
+    return (savedRun ? 'saved' : 'scarred (' + G.fire.outbreak + ' trees)') + ' → endless; cache 2 in the west woods';
   });
   await raf();
 
