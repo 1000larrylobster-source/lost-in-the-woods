@@ -1,60 +1,73 @@
-# Lost in the Woods: Design Doc v0
+# Lost in the Woods: Design Doc v1
 
-This is the honest version. Things in here will be wrong. When they turn out wrong, the devlog will say so and this doc gets updated. That is the whole point of designing in public.
+> The honest, in-public version. **v0 was wrong about the center of the game** — it made rescue the
+> point and drew it top-down. This v1 corrects it. Publishing the correction *is* the point of
+> designing in public.
+
+## What changed (v0 → v1)
+
+v0 called this a search-and-rescue base-builder seen from above. The real game is a **wildfire-watch
+system you build by hand, as a character down in the woods** — and rescue is a *second use* of the same
+eyes, not the point. Corrected throughout below.
 
 ## Player fantasy
 
-You were the emergency. Now you are the response.
+You wake up lost in the woods. By the end, you've built an autonomous network that watches the whole
+forest for the first curl of smoke. **You are IN the woods** — third-person, on foot, in the world
+(think *Ocarina of Time*) — not an operator hovering over a map.
 
-The fantasy is not "lone survivor punches trees." It is competence with real equipment. You know what a LoRa node is because one saved your life. You know why drone batteries die in the cold because yours did at the worst moment. The player should end a session feeling like they could almost build this stuff for real. Because they could. Every unlockable in the game exists at a hobbyist price point today.
+The emotional spine: a wildfire starts as one tree. Being the network that catches it *there*, before
+it becomes a canyon fire, is the feeling. Finding a lost hiker with the same eyes is the bonus that
+reminds you the thing you built is alive.
 
-The emotional spine: being lost is terrifying, and being found is one of the strongest feelings a person can have. The game hands you that feeling in act 1, then spends the rest of the game letting you give it to someone else.
+## The core loop
 
-## Three acts
+**Explore → salvage → build the eyes → watch for smoke → catch it early.**
 
-### Act 1: Survive
+1. **Explore & survive.** On foot in the forest. Traversal reveals the map, the hardware, and the good
+   station sites.
+2. **Find / salvage hardware.** Real gear scattered in the world — solar panels, drones, radios, cameras.
+3. **Site & build a solar-powered station.** The core decision, and it's real tech work: read the site
+   for **elevation** (sightlines for the drone cameras), **sun** (solar power), and **terrain /
+   line-of-sight** (what a drone can actually see from here). A station on the ridge watches two valleys;
+   one down in the trees is half-blind.
+4. **Drones patrol.** Each station launches drones that autonomously sweep their sectors for smoke and
+   heat. You're growing the forest's *eyes* — and you can always see where it's still blind.
+5. **Respond to smoke.** A drone flags a heat signature; you confirm it (send a closer drone, or hike in
+   yourself) and act while it's one tree. **Miss it and it spreads** — dry forest, wind — and burns your
+   stations and the terrain with it. The forest is the save file.
+6. **Find lost hikers.** The same sensors detect people — the softer, rewarding secondary objective.
 
-You are the lost hiker. Dead phone, no gear, weather turning. Bare-hands tier: shelter, water, signal mirror, fire. You are not building yet, you are lasting. The act ends when the network finds you. A drone spots your fire, or a hiker with a handheld picks up your whistle pattern, or a ranger triangulates you off a single lucky ping.
+## The central tension
 
-Design intent: this act is short and it is scripted tighter than the rest. Its job is to make you feel what rescue means, so the rest of the game has weight. Maybe 45 minutes on a first run.
+You can never watch the whole forest — limited hardware, power, and drones. The game is the constant
+choice of **where to build your eyes**, made from the ground as a character reading real terrain,
+against a forest that is actively trying to catch fire in your blind spots.
 
-### Act 2: Connect
+## The real-hardware rule (unchanged — now literal)
 
-You join the volunteer search network. Now the base-builder opens up. You salvage and scrounge components: a wrecked drone with a good camera, dead nodes with live radios, a bin of parts at the ranger station. You solder your first beacon. You place your first ridgeline node and watch your coverage map grow a lobe.
+Every unlockable is buildable in real life by a motivated hobbyist: solar panels + charge controllers,
+Pi / Jetson vision nodes that detect smoke, fire, and people, cheap drones, thermal cameras,
+LoRa / Meshtastic mesh, directional antennas where aim is a real mechanic. This isn't a theme — it's the
+**actual edge-AI fire-watch node in `HARDWARE.md`**, fictionalized. The game and the real system get
+designed in the same motion. One effort, two harvests.
 
-Coverage is the core territory mechanic. Terrain blocks radio. Elevation is power. A node in the right saddle is worth three in the trees. Lost-hiker events fire inside and outside your coverage, and the difference in outcome teaches the mechanic better than any tutorial.
+## The look
 
-### Act 3: Protect
-
-The network is big enough to stop watching for people and start watching for everything. Thermal cameras, smoke sensors, trail counters. Fire becomes the late-game antagonist: a smoke signature on a thermal cam at 2am, a scramble to confirm with a drone, a call that gets a crew on a one-tree fire before it becomes a canyon fire.
-
-Failure states matter here. A fire you miss changes the map. Burned zones lose nodes, lose trails, lose the places you knew. The forest is the save file.
-
-## The real-hardware rule
-
-Every unlockable must be buildable in real life by a motivated hobbyist. No fantasy tech, no "advanced polymer" resources, no research points.
-
-- LoRa radios and mesh nodes (Meshtastic exists, this is not science fiction)
-- Pi Zero drones with cheap flight controllers
-- Thermal cameras, the affordable low-res kind first, better ones later
-- Solar panels, charge controllers, battery math that actually matters
-- Directional antennas, and yes, antenna aim should be a real mechanic
-
-The rule cuts both ways. If a mechanic needs the hardware to do something it cannot do in real life, the mechanic changes, not the hardware. My background is low-voltage systems and access control. I will not ship a tech tree I would be embarrassed to explain to another tech.
-
-Stretch goal, way down the road: the in-game builds double as rough guides for the real thing. One effort, two harvests.
+North star: **Ocarina of Time** — third-person, warm painterly forest, in-world. That's the aspiration
+to grow *toward*. Early builds will be far rougher; we chase the *feel* ("readable stylized 3D that
+evokes OoT"), not unreleased fidelity.
 
 ## Open questions
 
-Undecided, in rough priority order:
+1. How much survival (the opening) vs. how much build-and-watch (the long game)?
+2. Real-time patrol on a day / season clock, or discrete operation phases?
+3. How manual is a response — do you always hike in, or can drones resolve some fires/finds on their own?
+4. Fire-spread model — how punishing, how readable?
+5. Engine: **Godot 4** (3D, exports to web + desktop) is the front-runner — and its HTML5 export is how
+   people will play it in a browser (itch.io / web) with no install.
 
-1. **Engine.** Godot is the front-runner (open source fits the build-in-public ethos), but not committed. Unity and raw web are still on the table.
-2. **2D or 3D.** Top-down 2D makes the coverage map the star and keeps scope sane. 3D sells the terror of act 1 better. Leaning 2D. Not locked.
-3. **Singleplayer first.** Almost certainly yes. A shared persistent forest where players maintain one big network is the dream, but the dream is how scope kills projects. Prove the loop solo.
-4. **Map: handcrafted or generated?** Act 1 wants authored moments. Acts 2 and 3 want replayable terrain. Maybe both: authored valley, generated wilderness beyond it.
-5. **Time pressure model.** Real-time with weather fronts, or turn-ish "operation" phases? Affects everything downstream.
-6. **How real is the radio sim?** Full line-of-sight propagation modeling, or a readable approximation? Realism is the brand, readability is the game.
+## Status
 
-## What this doc is not
-
-Not a pitch. Not a promise of a ship date. It is a snapshot of current thinking, version zero, written before a single line of engine code exists. Follow the devlog to watch it get corrected.
+**DESIGN PHASE**, in public — decisions and dead ends included (see the v0 → v1 correction up top). No
+engine yet. Follow the devlog.
