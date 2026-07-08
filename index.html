@@ -1551,19 +1551,31 @@ function burnOutCell(k) {
 }
 
 /* ------------------------------------------------- scorch decals (persist) -- */
+// radial-falloff texture from raw bytes (CanvasTexture upload proved flaky here)
+function radialTex(r0, g0, b0, aCenter, aMid) {
+  const N = 64, data = new Uint8Array(N * N * 4);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const dx = (x + 0.5) / N - 0.5, dy = (y + 0.5) / N - 0.5;
+      const d = Math.min(1, Math.hypot(dx, dy) * 2.13);
+      const t = d < 0.5 ? lerp(aCenter, aMid, d * 2) : lerp(aMid, 0, (d - 0.5) * 2);
+      const i = (y * N + x) * 4;
+      data[i] = r0; data[i + 1] = g0; data[i + 2] = b0;
+      data[i + 3] = Math.round(255 * t);
+    }
+  }
+  const tex = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
 const SCORCH_MAX = 240;
 let scorchCount = 0;
 const scorch = (function () {
-  const cnv = document.createElement('canvas'); cnv.width = cnv.height = 64;
-  const ctx = cnv.getContext('2d');
-  const g = ctx.createRadialGradient(32, 32, 3, 32, 32, 31);
-  g.addColorStop(0, 'rgba(10,7,5,0.94)');
-  g.addColorStop(0.6, 'rgba(15,10,7,0.7)');
-  g.addColorStop(1, 'rgba(18,12,9,0)');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
   const geo = new THREE.PlaneGeometry(1, 1); geo.rotateX(-Math.PI / 2);
   const mesh = new THREE.InstancedMesh(geo,
-    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cnv), transparent: true, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ map: radialTex(12, 8, 6, 0.94, 0.68), transparent: true, depthWrite: false }),
     SCORCH_MAX);
   mesh.count = 0; mesh.renderOrder = 2; mesh.name = 'scorch';
   scene.add(mesh);
@@ -1576,6 +1588,26 @@ function addScorch(x, z) {
   scorch.setMatrixAt(scorchCount++, _cm);
   scorch.count = scorchCount;
   scorch.instanceMatrix.needsUpdate = true;
+  scorchTerrain(x, z, s * 1.05);
+}
+// burn the scar into the terrain's own vertex colors — decal quads sink into
+// sloped ground (5m mesh triangles vs analytic height), vertex paint conforms
+function scorchTerrain(x, z, r) {
+  const terr = groundGroup.getObjectByName('terrain');
+  if (!terr) return;
+  const pos = terr.geometry.attributes.position;
+  const col = terr.geometry.attributes.color;
+  for (let i = 0; i < pos.count; i++) {
+    const dx = pos.getX(i) - x, dz = pos.getZ(i) - z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 > r * r) continue;
+    const t = 0.92 * (1 - Math.pow(Math.sqrt(d2) / r, 1.6));
+    col.setXYZ(i,
+      lerp(col.getX(i), 0.075, t),
+      lerp(col.getY(i), 0.06, t),
+      lerp(col.getZ(i), 0.05, t));
+  }
+  col.needsUpdate = true;
 }
 
 /* --------------------------------------------------- flame + smoke visuals -- */
@@ -1589,39 +1621,39 @@ const flamePool = [];
         new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false }));
       m.position.y = y; m.name = name; return m;
     };
-    g.add(mk(1.35, 3.6, 0xff5a18, 0.7, 1.8, 'outer'));
-    g.add(mk(0.7, 2.2, 0xffc93a, 0.9, 1.35, 'inner'));
-    const ember = new THREE.Mesh(new THREE.SphereGeometry(0.85, 8, 6),
-      new THREE.MeshBasicMaterial({ color: 0xff7a22, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false }));
-    ember.position.y = 0.5;
+    g.add(mk(1.0, 3.3, 0xff5a18, 0.3, 1.65, 'outer'));
+    g.add(mk(0.5, 2.0, 0xffc93a, 0.48, 1.25, 'inner'));
+    const ember = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 6),
+      new THREE.MeshBasicMaterial({ color: 0xff7a22, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false }));
+    ember.position.y = 0.45;
     g.add(ember);
+    // the persistent column: a tall soft shaft that reads across the valley
+    // (particle puffs alone sit in a sky band the follow-cam rarely frames)
+    const plume = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({ map: radialTex(200, 194, 214, 0.7, 0.42), transparent: true, depthWrite: false, opacity: 0.85 }));
+    plume.name = 'plume';
+    g.add(plume);
     g.visible = false;
     scene.add(g);
     flamePool.push(g);
   }
 })();
-const fireLightA = new THREE.PointLight(0xff8033, 0, 48, 2);
-const fireLightB = new THREE.PointLight(0xff7028, 0, 42, 2);
+const fireLightA = new THREE.PointLight(0xff8033, 0, 28, 2);
+const fireLightB = new THREE.PointLight(0xff7028, 0, 24, 2);
 scene.add(fireLightA, fireLightB);
 
 const SMOKE_MAX = 150;
 const smokeParts = [];
 const smokeMesh = (function () {
-  const cnv = document.createElement('canvas'); cnv.width = cnv.height = 64;
-  const ctx = cnv.getContext('2d');
-  const g = ctx.createRadialGradient(32, 32, 4, 32, 32, 30);
-  g.addColorStop(0, 'rgba(255,255,255,0.55)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
   const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1),
-    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cnv), transparent: true, depthWrite: false, opacity: 0.85 }),
+    // NOTE: color on the material (instanceColor needs vertexColors:true),
+    // and a DataTexture for the soft falloff (CanvasTexture upload is flaky)
+    new THREE.MeshBasicMaterial({ map: radialTex(255, 255, 255, 0.88, 0.5), color: 0xa39db0, transparent: true, depthWrite: false, opacity: 0.85 }),
     SMOKE_MAX);
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.renderOrder = 6; mesh.frustumCulled = false; mesh.name = 'smoke';
-  const grey = new THREE.Color(0x8d8781);
   for (let i = 0; i < SMOKE_MAX; i++) {
     smokeParts.push({ alive: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, age: 0, life: 1 });
-    mesh.setColorAt(i, grey);
     _cm.compose(new THREE.Vector3(0, -100, 0), _cq.identity(), new THREE.Vector3(0.001, 0.001, 0.001));
     mesh.setMatrixAt(i, _cm);
   }
@@ -1634,14 +1666,14 @@ function spawnSmoke(c) {
     if (p.alive) continue;
     const sc = treePositions[c.treeIdx][2] || 1;
     p.alive = true;
-    p.x = c.anchor[0] + (Math.random() - 0.5) * 1.6;
-    p.y = c.anchor[1] + 6.5 * sc;
-    p.z = c.anchor[2] + (Math.random() - 0.5) * 1.6;
+    p.x = c.anchor[0] + (Math.random() - 0.5) * 3.4;
+    p.y = c.anchor[1] + 6.5 * sc + Math.random() * 2;
+    p.z = c.anchor[2] + (Math.random() - 0.5) * 3.4;
     const wS = 0.9 + WIND.speed;
     p.vx = Math.sin(WIND.angle) * wS + (Math.random() - 0.5) * 0.4;
     p.vz = Math.cos(WIND.angle) * wS + (Math.random() - 0.5) * 0.4;
-    p.vy = 2.3 + Math.random() * 0.9;
-    p.age = 0; p.life = 9 + Math.random() * 4.5;
+    p.vy = 2.8 + Math.random() * 1.2;
+    p.age = 0; p.life = 12 + Math.random() * 5;
     return;
   }
 }
@@ -1651,21 +1683,29 @@ function fireVisualStep(dt) {
   // flames ride the first N burning cells
   let fi = 0;
   for (const [, c] of fire.cells) {
-    c.smokeAcc += dt * 3.4;
+    c.smokeAcc += dt * 5;
     while (c.smokeAcc > 1) { c.smokeAcc -= 1; spawnSmoke(c); }
     if (fi < FLAME_MAX) {
       const f = flamePool[fi++];
       f.visible = true;
-      const sc = (treePositions[c.treeIdx][2] || 1);
+      const sc = Math.min(treePositions[c.treeIdx][2] || 1, 1.15);
       f.position.set(c.anchor[0], c.anchor[1], c.anchor[2]);
       const flick = 1 + 0.16 * Math.sin(state.time * 12 + c.k * 1.7) + 0.09 * Math.sin(state.time * 29 + c.k);
-      f.scale.set(1.35 * sc, 1.35 * sc * flick, 1.35 * sc);
+      f.scale.set(sc, sc * flick * 1.15, sc);
+      // upright billboard: the column always faces the camera, grows with the burn
+      f.rotation.y = Math.atan2(camera.position.x - c.anchor[0], camera.position.z - c.anchor[2]);
+      const plume = f.getObjectByName('plume');
+      const ph = Math.min(36, 9 + c.t * 1.1) / (sc * flick * 1.15);
+      const pw = Math.min(10, 3.5 + c.t * 0.3) / sc;
+      plume.scale.set(pw, ph, 1);
+      plume.position.y = ph * 0.5 + 7 / (sc * flick * 1.15);
+      plume.material.opacity = 0.85 * Math.min(1, c.t / 6 + 0.35);
     }
   }
   for (; fi < FLAME_MAX; fi++) flamePool[fi].visible = false;
   // two shared ember lights: first burning cell + the one nearest the player
   const cs = Array.from(fire.cells.values());
-  const flickL = 1.5 + 0.55 * Math.sin(state.time * 9.3) + 0.3 * Math.sin(state.time * 23);
+  const flickL = 0.9 + 0.35 * Math.sin(state.time * 9.3) + 0.18 * Math.sin(state.time * 23);
   if (cs.length) {
     fireLightA.position.set(cs[0].anchor[0], cs[0].anchor[1] + 3, cs[0].anchor[2]);
     fireLightA.intensity = flickL;
@@ -1693,7 +1733,7 @@ function fireVisualStep(dt) {
       continue;
     }
     p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
-    const grow = 1.9 + p.age * 0.95;
+    const grow = 3.2 + p.age * 1.6;
     const s = grow * smoothstep(0, 0.7, p.age) * (1 - smoothstep(p.life - 2.6, p.life, p.age));
     _cm.compose(_cp.set(p.x, p.y, p.z), camera.quaternion, _cs.set(Math.max(0.001, s), Math.max(0.001, s), 1));
     smokeMesh.setMatrixAt(i, _cm);
@@ -2024,7 +2064,7 @@ function firstSmoke() {
 const cine = { t: 9, dur: 0, target: new THREE.Vector3() };
 function startCine(anchor) {
   cine.t = 0; cine.dur = 3.0;
-  cine.target.set(anchor[0], anchor[1] + 16, anchor[2]);
+  cine.target.set(anchor[0], anchor[1] + 22, anchor[2]);   // frame the column, not the dirt
   arc.cineDone = true;
 }
 function showCard(saved, count) {
