@@ -117,6 +117,11 @@ lightning · ghost towers + strip/cannibalize · Blackpine's lake · the Crown's
 finale (3 dawns → THE RANGE — HELD) · 7 easter eggs · starfield + clouds · v1.0.
 
 **Post-1.0 backlog (priced honestly, none block release):**
+- ⭐ THE ZELDA LOOK PASS — deep-researched + verified plan in `design/ZELDA-LOOK.md`
+  (2026-07-09). Stage 1 (hours): MeshToonMaterial ramp everywhere + OutlineEffect +
+  warm fog/palette pass + character rim. Stage 2 (days): instanced wind grass
+  (Quick_Grass/Smyth, MIT). Stage 3: WW grayscale-mask VFX; bloom only if perf allows.
+  Art-direction lock (cel look) is Jon's call before Stage 1 lands.
 - Settings panel: volume sliders, camera sensitivity/invert, reduced motion (SHOULD)
 - Pause menu + controls card (SHOULD)
 - Per-region bespoke terrain layouts (the Fork's braided creeks, the canyon's walls —
