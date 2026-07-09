@@ -65,8 +65,11 @@ makes surviving possible. Every survival system should touch the network somewhe
 
 1. ✅ 3rd-person follow camera *(done)*
 2. ✅ Survival needs — hunger + thirst *(done: meters, drain, drink, eat, empty-slow)*
-3. Health + fall damage layer (needs-at-zero now bites; sets up falls)
-4. Jump + stamina (traversal + the stamina meter its consumers need)
+3. ✅ Health + jump + fall & fire damage + blackout *(done: third vital, real vertical
+   physics, Space/▲ jump, falls past ~3m and standing in flames cost health, zero =
+   blackout → wake at cache weaker; survival + rations persist in the save — old saves
+   load clean)*
+4. Stamina (sprint/climb budget; regens at rest — the meter jump/hauling will spend)
 5. ⭐ Station/drone/shelter **degradation & maintenance** loop *(the keystone — the
    network as survival; maps 1:1 to the real Pi node)*
 6. Warmth/cold + shelter + sleep (the night rhythm)
@@ -78,6 +81,6 @@ Each item ships the way Level 1 did: one self-contained build, verified on-canva
 screenshotted and read before it counts as done, with a devlog.
 
 ## Not-yet-done notes
-- Survival needs are runtime-only right now; **persist hunger/thirst to the save file**
-  when the health layer lands (the forest already remembers scars + stations).
 - Second cache across the river should also stock rations.
+- Blackout currently always wakes you at the first cache; once multiple stations are
+  shelters, wake at the nearest tended one instead.
