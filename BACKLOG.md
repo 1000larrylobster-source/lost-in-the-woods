@@ -4,17 +4,22 @@ Running design frame for what comes after Level 1. Captured live from playtests.
 The rule that saved this game twice still holds: **lock the core fantasy before
 building.** Every item below is measured against one thesis.
 
+## Decision — survival depth (locked 2026-07-08)
+
+Jon's call: **FULL survival-sim.** Real needs with real depth — hunger, thirst,
+warmth, stamina, foraging, cooking, shelter. Wildfire-watch is one major system among
+several, not the only one.
+
 ## The thesis that keeps this game itself
 
-> **The maintenance of the network IS the survival layer.**
+> **Full survival-sim — but the network is what makes surviving matter.**
 
-You are a ranger, not a castaway. The tension is keeping the forest's eyes alive
-across distance and time — panels foul, batteries sag, drones run out of charge,
-links drop, snow comes. Character needs (food, water, warmth, rest) exist only as
-*pressure that makes tending the network hard* — never as their own busywork. The
-moment hunger/thirst becomes the point, this is Generic Woods Survival #4000 and the
-wildfire-watch — the thing that makes it Jon's real hardware — becomes a side quest.
-It must stay the spine.
+The depth is real, but the wildfire-watch and the real Pi hardware stay the spine, or
+this becomes Generic Woods Survival #4000. The reconciliation: **your network extends
+your senses and your reach.** The drones that hunt smoke also spot the deer herd you
+could hunt, the storm rolling in, the hiker who has your spare rations. The station is
+your lifeline — power, warmth, a place to sleep. Surviving funds the watch; the watch
+makes surviving possible. Every survival system should touch the network somewhere.
 
 ## Playtest notes — 2026-07-08 (verbatim)
 
@@ -45,26 +50,34 @@ It must stay the spine.
 - **Fire damage** — raises the stakes of the firebreak you already hold. Get too close
   to the line and it costs you. Fire already exists; this is a consequence layer.
 
-### Bucket C — character-survival pressure (needs a depth decision — see fork)
-- **Food & water consumption**, **sleep**, **warmth/cold**, **fall damage** — genre
-  staples. They earn their place ONLY as pressure that pushes you between the watch and
-  base, or forces the sleep/night rhythm. How deep they go is the one open question.
+### Bucket C — character-survival (full depth, per the locked decision)
+- **Food & water** — ✅ increment 1 shipped (hunger + thirst; drain, drink, eat, empty
+  = slowed). Next: foraging/hunting for food, so you're not tethered to starting rations.
+- **Warmth / cold** — pairs with shelter + the night clock + weather. Fire and the
+  station are heat sources. Increment 2 candidate.
+- **Stamina** — sprint/climb budget; gates jump and hauling. Regens at rest/by food.
+- **Sleep** — pass the night, but night is when drones go blind and hikers call — so
+  sleeping has a cost. Ties to shelter.
+- **Health + fall damage** — a HP layer under the needs; needs at 0 drain it, falls and
+  fire hurt it, black out → wake at base (the gentle fail the game already uses).
 
-## The one open fork — how deep is character-survival?
-
-Marked OPEN, pending Jon's lock. Options and the recommendation live in the session
-thread. The rest of the build order assumes the recommended "light pressure in service
-of the watch," and will be revised here once locked.
-
-## Proposed build order (revised once the fork is locked)
+## Build order (survival-sim locked; revise as we learn)
 
 1. ✅ 3rd-person follow camera *(done)*
-2. Jump (+ hooks for fall damage)
-3. Inventory as a real carried-load system
-4. ⭐ Station/drone/shelter degradation & maintenance loop *(the keystone)*
-5. Animals as detection false-positives
-6. Fire & fall damage (consequence layer)
-7. Food / water / sleep / warmth — at the depth locked by the fork
+2. ✅ Survival needs — hunger + thirst *(done: meters, drain, drink, eat, empty-slow)*
+3. Health + fall damage layer (needs-at-zero now bites; sets up falls)
+4. Jump + stamina (traversal + the stamina meter its consumers need)
+5. ⭐ Station/drone/shelter **degradation & maintenance** loop *(the keystone — the
+   network as survival; maps 1:1 to the real Pi node)*
+6. Warmth/cold + shelter + sleep (the night rhythm)
+7. Foraging / hunting for food (drones spot game — network feeds survival)
+8. Animals as drone false-positives (deer vs. hiker vs. smoke)
+9. Inventory as a real carried-load / weight system tying it all together
 
-Each item ships the same way Level 1 did: one self-contained build, verified on-canvas,
+Each item ships the way Level 1 did: one self-contained build, verified on-canvas,
 screenshotted and read before it counts as done, with a devlog.
+
+## Not-yet-done notes
+- Survival needs are runtime-only right now; **persist hunger/thirst to the save file**
+  when the health layer lands (the forest already remembers scars + stations).
+- Second cache across the river should also stock rations.
