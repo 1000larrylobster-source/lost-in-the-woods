@@ -69,11 +69,13 @@ makes surviving possible. Every survival system should touch the network somewhe
    physics, Space/▲ jump, falls past ~3m and standing in flames cost health, zero =
    blackout → wake at cache weaker; survival + rations persist in the save — old saves
    load clean)*
-4. Stamina (sprint/climb budget; regens at rest — the meter jump/hauling will spend)
+4. ✅ Stamina + berries-on-the-map *(done: Shift/stick-rim sprint 1.55x ~7s, jump costs
+   wind, winded state, idle regen halved when hungry; 16 regrowing berry bushes + cache-2
+   rations — Jon's playtest call: food had to be renewable or blackout looped)*
 5. ⭐ Station/drone/shelter **degradation & maintenance** loop *(the keystone — the
-   network as survival; maps 1:1 to the real Pi node)*
+   network as survival; maps 1:1 to the real Pi node)* ← **NEXT**
 6. Warmth/cold + shelter + sleep (the night rhythm)
-7. Foraging / hunting for food (drones spot game — network feeds survival)
+7. Hunting for food (drones spot game — network feeds survival; berries shipped early in #4)
 8. Animals as drone false-positives (deer vs. hiker vs. smoke)
 9. Inventory as a real carried-load / weight system tying it all together
 
@@ -81,6 +83,8 @@ Each item ships the way Level 1 did: one self-contained build, verified on-canva
 screenshotted and read before it counts as done, with a devlog.
 
 ## Not-yet-done notes
-- Second cache across the river should also stock rations.
+- ~~Second cache across the river should also stock rations.~~ ✅ done in #4.
 - Blackout currently always wakes you at the first cache; once multiple stations are
   shelters, wake at the nearest tended one instead.
+- Berry bushes don't persist picked-state in the save (they regrow in 90s anyway);
+  revisit if regrowth ever slows.
