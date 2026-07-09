@@ -1079,6 +1079,13 @@ function nearestInteract() {
     return { type: 'drink', label: 'Drink from the creek' };
   if (state.salvaged && inventory.rations > 0 && state.survival.hunger < 0.95 && nearBase(px, pz))
     return { type: 'eat', label: 'Eat a ration (' + inventory.rations + ' left)' };
+  // knife range on a stalked elk
+  for (const h of herds) {
+    for (const e of h.elk) {
+      if (Math.hypot(px - e.x, pz - e.z) < 3.2)
+        return { type: 'hunt', label: 'Take the elk', e, h };
+    }
+  }
   for (const b of bushes) {
     if (!bushReady(b)) continue;
     if (Math.hypot(px - b.x, pz - b.z) < 3.4)
@@ -1153,6 +1160,16 @@ function tryInteract() {
       toast('You eat a ration.', 'good');
       saveForest();
     }
+  }
+  else if (t.type === 'hunt') {
+    t.h.elk.splice(t.h.elk.indexOf(t.e), 1);
+    scene.remove(t.e.group);
+    inventory.rations += 2;
+    renderChips();
+    biteSound();
+    toast('Field-dressed. Two days\' food, honestly earned. The herd moves off.', 'good');
+    for (const o of t.h.elk) o.fleeT = 4;
+    saveForest();
   }
   else if (t.type === 'forage') {
     t.bush.pickedUntil = state.time + 90;   // the bush regrows on its own clock
@@ -2470,6 +2487,117 @@ function makeSignalBeacon(color) {
 }
 const fireBeacon = makeSignalBeacon(0xff5544);
 const hikerBeacon = makeSignalBeacon(0xffb84a);
+
+/* ------------------------------------------- animals: the herd (region 4+) -- */
+// Elk roam boids-lite. They smell you on the wind: come at them upwind and they
+// bolt at 15m; stalk in from downwind and you can get to knife range. The drones
+// flag them honestly as moving heat — the classification problem the real node has.
+const herds = [];
+const animalPing = { active: false, x: 0, z: 0, cooldownUntil: 0 };
+const animalBeacon = makeSignalBeacon(0xd88a4a);
+function makeElkMesh() {
+  const g = new THREE.Group();
+  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.95, flatShading: true });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.85, 0.7), mat(0x6a5138));
+  body.position.y = 1.05;
+  const neck = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.34), mat(0x6a5138));
+  neck.position.set(0.78, 1.55, 0); neck.rotation.z = -0.5;
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.3, 0.26), mat(0x59422c));
+  head.position.set(1.12, 1.82, 0);
+  const legF = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.05, 0.5), mat(0x59422c));
+  legF.position.set(0.55, 0.52, 0);
+  const legB = legF.clone(); legB.position.x = -0.55;
+  const rump = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.5, 0.55), mat(0x75593d));
+  rump.position.set(-0.75, 1.1, 0);
+  for (const m of [body, neck, head, legF, legB, rump]) { m.castShadow = true; g.add(m); }
+  return g;
+}
+function spawnHerd(cx, cz, n) {
+  const h = { cx, cz, tx: cx, tz: cz, wanderT: 10, elk: [] };
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2, r = 4 + (i % 3) * 3;
+    const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+    const group = makeElkMesh();
+    group.position.set(x, terrainH(x, z), z);
+    scene.add(group);
+    h.elk.push({ group, x, z, vx: 0, vz: 0, fleeT: 0 });
+  }
+  herds.push(h);
+  return h;
+}
+if (REGION.id === 'meadow') { spawnHerd(60, 130, 8); spawnHerd(-130, -70, 7); }
+function animalsStep(dt) {
+  const wdx = Math.sin(WIND.angle), wdz = Math.cos(WIND.angle);
+  for (const h of herds) {
+    h.wanderT -= dt;
+    if (h.wanderT <= 0) {
+      h.wanderT = 18 + fireRng() * 22;
+      h.tx = clamp(h.cx + (fireRng() - 0.5) * 160, -260, 260);
+      h.tz = clamp(h.cz + (fireRng() - 0.5) * 160, -260, 260);
+    }
+    h.cx += (h.tx - h.cx) * Math.min(1, dt * 0.02);
+    h.cz += (h.tz - h.cz) * Math.min(1, dt * 0.02);
+    for (let i = h.elk.length - 1; i >= 0; i--) {
+      const e = h.elk[i];
+      const dxp = e.x - player.pos.x, dzp = e.z - player.pos.z;
+      const dp = Math.hypot(dxp, dzp) || 0.001;
+      // the scent: wind carrying you TO the elk lengthens its alarm radius
+      const scent = ((dxp / dp) * wdx + (dzp / dp) * wdz);
+      const alertR = scent > 0.2 ? 15 : 2.6;   // dead downwind you can close to knife range
+      if (dp < alertR && e.fleeT <= 0) e.fleeT = 3;
+      let ax, az, spd;
+      if (e.fleeT > 0) {
+        e.fleeT -= dt;
+        ax = dxp / dp; az = dzp / dp; spd = 7;
+      } else {
+        ax = (h.cx - e.x) * 0.02 + (fireRng() - 0.5) * 0.4;
+        az = (h.cz - e.z) * 0.02 + (fireRng() - 0.5) * 0.4;
+        const L = Math.hypot(ax, az) || 1;
+        ax /= L; az /= L; spd = 1.4;
+        // separation: elk keep a body length apart
+        for (const o of h.elk) {
+          if (o === e) continue;
+          const dox = e.x - o.x, doz = e.z - o.z, d2 = dox * dox + doz * doz;
+          if (d2 < 9 && d2 > 0.01) { ax += dox / d2 * 2; az += doz / d2 * 2; }
+        }
+      }
+      e.vx += (ax * spd - e.vx) * Math.min(1, dt * 3);
+      e.vz += (az * spd - e.vz) * Math.min(1, dt * 3);
+      e.x = clamp(e.x + e.vx * dt, -280, 280);
+      e.z = clamp(e.z + e.vz * dt, -280, 280);
+      e.group.position.set(e.x, terrainH(e.x, e.z), e.z);
+      if (Math.hypot(e.vx, e.vz) > 0.3) e.group.rotation.y = Math.atan2(e.vx, e.vz) - Math.PI / 2;
+    }
+  }
+  // resolve a held animal mark by walking to it
+  if (animalPing.active && Math.hypot(player.pos.x - animalPing.x, player.pos.z - animalPing.z) < 9) {
+    animalPing.active = false;
+    animalPing.cooldownUntil = state.time + 75;
+    animalBeacon.visible = false;
+    toast('An elk, staring back. False alarm — a drill you want to have run.', 'good');
+    score.add(10);
+  }
+}
+function animalDetectStep() {
+  if (animalPing.active || state.time < animalPing.cooldownUntil || !herds.length) return;
+  for (const h of herds) {
+    for (const e of h.elk) {
+      if (Math.hypot(e.vx, e.vz) < 0.5) continue;   // still elk read as ground
+      const k = cellIndexFor(e.x, e.z);
+      for (const st of stations) {
+        if (!st.drone || !st.drone.visible || !st.online || !st.coverage.cells.has(k)) continue;
+        if (Math.hypot(st.drone.position.x - e.x, st.drone.position.z - e.z) < detectRadiusFor(st)) {
+          animalPing.active = true; animalPing.x = e.x; animalPing.z = e.z;
+          animalBeacon.visible = true;
+          animalBeacon.position.set(e.x, terrainH(e.x, e.z), e.z);
+          toast('MOVING HEAT — unconfirmed. The drone holds a mark. Confirm on foot.', 'alert');
+          pingSound();
+          return;
+        }
+      }
+    }
+  }
+}
 function detectRadius() { return lerp(95, 30, clock.nightK); }   // night = camera-blind
 function detectRadiusFor(st) { return st.noir ? lerp(80, 55, clock.nightK) : detectRadius(); }
 let detectT = 0;
@@ -3408,6 +3536,8 @@ Events.on('tick', (dt) => {
   fireHurtStep(dt);
   fireVisualStep(dt);
   detectStep(dt);
+  animalsStep(dt);
+  animalDetectStep();
   firebreakStep(dt);
   hikerStep(dt);
   arcStep(dt);
@@ -3458,7 +3588,7 @@ Object.assign(G, {
   fire, WIND, igniteCell, igniteNear, cellIndexFor, cellHasFuel, cellAnchor, fuelTotal,
   firebreak, clock, detectRadius, arc, firstSmoke, showCard, dismissCard, forestHealth,
   hiker, spawnHiker, rescueHiker, cache2, spawnCache2, doSalvage2, recruits, settleRecruit,
-  rangeLoad, travelNext, sleepUntilDawn,
+  rangeLoad, travelNext, sleepUntilDawn, herds, spawnHerd, animalPing, detectRadiusFor,
   saveForest, loadForest, SAVE_KEY, store, score, stationAt, restoreStation,
   flamePool, smokeParts, smokeLive, scorchMesh: scorch, sun, toast,
 });
@@ -4242,6 +4372,41 @@ async function runTests() {
     assert(detectRadiusFor(st) < detectRadius(), 'NoIR should trade a little daylight reach');
     st.power = 1;
     return 'NoIR at the meadow: sees ~55m in the dark where standard eyes see 30';
+  });
+  await raf();
+
+  T('the herd: drones flag moving heat; downwind stalking feeds you', () => {
+    assert(herds.length === 0, 'herds should not auto-spawn in the Valley');
+    const h = G.spawnHerd(120, -20, 4);
+    G.clock.set(60); G.step(2);
+    for (const st of stations) st.power = 1;
+    let guard = 0;
+    while (!animalPing.active && guard++ < 3000) G.step(1);
+    assert(animalPing.active, 'the drone never flagged the herd');
+    G.teleport(animalPing.x + 2, animalPing.z + 2);
+    const s0 = G.score.n;
+    G.step(5);
+    assert(!animalPing.active, 'mark did not resolve on foot');
+    assert(G.score.n === s0 + 10, 'no credit for the drill');
+    // the stalk: upwind spooks, downwind kills
+    const e = h.elk[0];
+    e.fleeT = 0; e.x = 0; e.z = 100; e.vx = 0; e.vz = 0;
+    WIND.angle = 0; WIND.target = 0; WIND.gusting = false; WIND.gustK = 0;
+    G.teleport(0, 92);                        // upwind: your scent rides to the elk
+    G.step(30);
+    assert(e.fleeT > 0 || Math.hypot(e.x, e.z - 100) > 4, 'upwind approach did not spook the elk');
+    e.fleeT = 0; e.x = 0; e.z = 100; e.vx = 0; e.vz = 0;
+    G.teleport(0, 103);                       // downwind: knife range, unnoticed
+    G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'hunt', 'no hunt prompt at knife range: ' + (state.promptTarget && state.promptTarget.type));
+    const r0 = inventory.rations;
+    tryInteract();
+    assert(inventory.rations === r0 + 2, 'the elk fed no one');
+    assert(h.elk.indexOf(e) < 0, 'elk not removed');
+    for (const o of h.elk.slice()) scene.remove(o.group);
+    h.elk.length = 0;
+    animalPing.cooldownUntil = state.time + 9999;
+    return 'flagged, confirmed on foot (+10), spooked upwind, taken downwind (+2 rations)';
   });
   await raf();
 
