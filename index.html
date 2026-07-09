@@ -978,6 +978,11 @@ function nearestInteract() {
     if (st && st.drone && st.wear > 0.5)
       return { type: 'service', label: 'Service the drone rotors', st };
   }
+  // a neighbor by the fire
+  for (const rec of recruits) {
+    if (Math.hypot(px - rec.camp.x, pz - rec.camp.z) < 4.5)
+      return { type: 'talk', label: 'Talk to ' + rec.name, rec };
+  }
   // survival verbs — drink at the creek, eat a ration at base, forage the valley
   if (Math.abs(px - riverX(pz)) < 6.5 && state.survival.thirst < 0.98)
     return { type: 'drink', label: 'Drink from the creek' };
@@ -1040,6 +1045,10 @@ function tryInteract() {
   else if (t.type === 'droneAsm') assembleDrone(t.pad);
   else if (t.type === 'wipe') { t.st.foul = 0; toast('Panel wiped clean — full yield again.', 'good'); saveForest(); }
   else if (t.type === 'service') { t.st.wear = 0; toast('Rotors trued, bearings oiled.', 'good'); saveForest(); }
+  else if (t.type === 'talk') {
+    toast(t.rec.name + ': ' + t.rec.lines[t.rec.lineIdx % t.rec.lines.length], 'good');
+    t.rec.lineIdx++;
+  }
   else if (t.type === 'drink') { state.survival.thirst = 1; toast('Cold creek water. Thirst slaked.', 'good'); saveForest(); }
   else if (t.type === 'eat') {
     if (inventory.rations > 0) {
@@ -2497,6 +2506,108 @@ function hikerStep(dt) {
   }
 }
 
+/* -------------------------------------------- recruits: the ones who stay -- */
+// Every hiker you walk home is a neighbor you haven't met yet. They settle by
+// the towers and take a share of the watch. Map 1: DALE, the runner.
+const RECRUIT_DEFS = {
+  dale: {
+    name: 'DALE', role: 'runner',
+    lines: [
+      '"Took one wrong fork at dusk. One."',
+      '"I can carry the heavy end. It\'s the least."',
+      '"You built all this? Out here?"',
+      '"Sleep. I\'ll drag what needs dragging."',
+    ],
+  },
+};
+const recruits = [];
+let pendingRecruit = null;
+function makeSettlerMesh() {
+  const g = new THREE.Group();
+  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, flatShading: true });
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.46, 3, 8), mat(0x4a6a52));
+  torso.position.y = 1.0;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 8), mat(0xc79b74));
+  head.position.y = 1.55;
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.21, 0.14, 10), mat(0x3a4a5c));
+  cap.position.y = 1.68;
+  for (const m of [torso, head, cap]) { m.castShadow = true; g.add(m); }
+  return g;
+}
+function settleRecruit(key) {
+  const def = RECRUIT_DEFS[key];
+  if (!def || recruits.some(r => r.key === key)) return null;
+  const home = stations[0] ? stations[0].pad : CACHE;
+  const cx = home.x + 11, cz = home.z + 7;
+  const y = terrainH(cx, cz);
+  const g = new THREE.Group();
+  const mat = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r == null ? 0.9 : r, flatShading: true });
+  // tent: two leaning slabs over a ridge pole
+  const t1 = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.08, 1.6), mat(0x7a5c34));
+  t1.position.set(0, 0.75, -0.55); t1.rotation.x = 0.85;
+  const t2 = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.08, 1.6), mat(0x6a4e2c));
+  t2.position.set(0, 0.75, 0.55); t2.rotation.x = -0.85;
+  // fire ring + coals
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.1, 6, 10), mat(0x5a5650, 0.95));
+  ring.position.set(1.9, 0.1, 0.4); ring.rotation.x = Math.PI / 2;
+  const coals = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 0.12, 8),
+    new THREE.MeshStandardMaterial({ color: 0x3a2418, emissive: 0xff7a30, emissiveIntensity: 0.55, roughness: 0.9 }));
+  coals.position.set(1.9, 0.12, 0.4); coals.name = 'coals';
+  const settler = makeSettlerMesh();
+  settler.position.set(0.9, 0, 1.4);
+  settler.rotation.y = 2.4;
+  for (const m of [t1, t2, ring]) m.castShadow = true;
+  g.add(t1, t2, ring, coals, settler);
+  g.position.set(cx, y, cz);
+  scene.add(g);
+  const rec = { key, name: def.name, role: def.role, lines: def.lines, lineIdx: 0, camp: { x: cx, z: cz }, group: g };
+  recruits.push(rec);
+  return rec;
+}
+// the runner's share: overnight, one heavy part moves toward your active build
+function runnerHaulAtDawn() {
+  for (const rec of recruits) {
+    if (rec.role !== 'runner') continue;
+    const asm = assemblies.values().next().value;
+    if (!asm) return;
+    const want = Object.keys(COMP).filter(c => !asm.mounted[c]);
+    let hauled = false;
+    for (const s of SITES) {
+      if (!s.spawned || hauled) continue;
+      for (const p of s.parts) {
+        if (s.taken[p] || want.indexOf(p) < 0) continue;
+        s.taken[p] = true;
+        if (s.partMeshes[p]) s.partMeshes[p].visible = false;
+        const m = makePartMesh(p);
+        const lx = asm.pad.x + 3.5, lz = asm.pad.z + 3.5;
+        m.position.set(lx, terrainH(lx, lz) + (p === 'base' ? 0.25 : 0.5), lz);
+        scene.add(m);
+        LOOSE.push({ part: p, x: lx, z: lz, mesh: m });
+        toast(rec.name + ' hauled the ' + COMP[p].name + ' up overnight. It\'s by the pad.', 'good');
+        hauled = true;
+        saveForest();
+        break;
+      }
+    }
+  }
+}
+Events.on('rescue', () => {
+  if (!recruits.some(r => r.key === 'dale')) pendingRecruit = 'dale';
+});
+Events.on('dawn', () => {
+  if (pendingRecruit) {
+    const rec = settleRecruit(pendingRecruit);
+    pendingRecruit = null;
+    if (rec) {
+      toast('First light. The hiker came back with a pack and a tarp — he\'s staying. ' + rec.name + ' settles in by the tower.', 'good');
+      Events.emit('recruit', { key: rec.key });
+      saveForest();
+    }
+  } else {
+    runnerHaulAtDawn();
+  }
+});
+
 /* ----------------------------------------------------- salvage cache two -- */
 const cache2 = { spawned: false, salvaged: false, x: -152, z: -95, group: null };
 function spawnCache2() {
@@ -2835,6 +2946,7 @@ function saveForest() {
       day: clock.day, score: score.n,
       best: Math.max(coveragePercent(), (loadForest() || {}).best || 0),
       cache2: cache2.salvaged, rescued: hiker.done, salvaged: state.salvaged,
+      recruits: recruits.map(r => r.key),
     }));
   } catch (e) { /* saving must never crash the watch */ }
 }
@@ -2959,6 +3071,9 @@ function restoreForest() {
           st.wear = clamp(+td.w || 0, 0, 1);
         }
       }
+      // the neighbors come back with the forest
+      for (const k of (data.recruits || [])) settleRecruit(k);
+      if (data.rescued && !recruits.length) pendingRecruit = 'dale';   // pre-recruit saves owe him a camp
       const anyFlying = data.stations.length > nd.size;
       if (anyFlying) {
         // a live watch resumes where it left off — endless, fires and all
@@ -3016,7 +3131,7 @@ Events.on('tick', (dt) => {
 Object.assign(G, {
   fire, WIND, igniteCell, igniteNear, cellIndexFor, cellHasFuel, cellAnchor, fuelTotal,
   firebreak, clock, detectRadius, arc, firstSmoke, showCard, dismissCard, forestHealth,
-  hiker, spawnHiker, rescueHiker, cache2, spawnCache2, doSalvage2,
+  hiker, spawnHiker, rescueHiker, cache2, spawnCache2, doSalvage2, recruits, settleRecruit,
   saveForest, loadForest, SAVE_KEY, store, score, stationAt, restoreStation,
   flamePool, smokeParts, smokeLive, scorchMesh: scorch, sun, toast,
 });
@@ -3640,6 +3755,45 @@ async function runTests() {
     assert(G.hiker.rescued, 'not rescued');
     assert(G.score.n === s0 + 250, 'points not awarded: ' + G.score.n);
     return (G.hiker.marked ? 'drone marked him' : 'found by eye') + ', +250 points';
+  });
+  await raf();
+
+  T('a rescued hiker settles at dawn — DALE, the runner', () => {
+    assert(G.hiker.rescued, 'rescue must precede settling');
+    G.clock.set(G.clock.DAY + G.clock.NIGHT - 0.5);   // half a second to first light
+    G.step(60);
+    assert(G.recruits.length === 1 && G.recruits[0].key === 'dale', 'Dale did not settle: ' + G.recruits.length);
+    const rec = G.recruits[0];
+    assert(rec.group.parent, 'no camp in the scene');
+    G.teleport(rec.camp.x + 1, rec.camp.z + 1);
+    G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'talk', 'no talk prompt: ' + (state.promptTarget && state.promptTarget.type));
+    tryInteract();
+    return rec.name + ' settled by the tower; he talks by the fire';
+  });
+  await raf();
+
+  T('the runner hauls a part to your build overnight', () => {
+    const meadow = PADS.find(p => p.id === 'meadow');
+    const shack2 = G.SITES.find(s => s.id === 'shack2');
+    shack2.spawned = true;                       // the west woods are open for this test
+    G.mountComponent(meadow, 'base');            // an active build for Dale to serve
+    const L0 = G.LOOSE.length;
+    G.clock.set(G.clock.DAY + G.clock.NIGHT - 0.5);
+    G.step(60);                                  // dawn: the runner works
+    assert(G.LOOSE.length === L0 + 1, 'nothing hauled overnight: ' + G.LOOSE.length + ' vs ' + L0);
+    const part = G.LOOSE[G.LOOSE.length - 1];
+    assert(Math.hypot(part.x - meadow.x, part.z - meadow.z) < 8, 'hauled to the wrong place');
+    assert(shack2.taken[part.part] || part.part !== 'scaffold' || shack2.taken.scaffold, 'site not debited');
+    return 'DALE moved the ' + COMP[part.part].name + ' to the meadow pad overnight';
+  });
+  await raf();
+
+  T('the neighbor persists in the save', () => {
+    saveForest();
+    const d = loadForest();
+    assert(d && Array.isArray(d.recruits) && d.recruits.indexOf('dale') >= 0, 'recruit not in save');
+    return 'dale rides the save file';
   });
   await raf();
 
