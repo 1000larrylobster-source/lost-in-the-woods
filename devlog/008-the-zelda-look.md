@@ -47,3 +47,17 @@ read the pixels before believing them.
 Still on the board from the plan: Wind Waker's grayscale-mask water sparkle, and bloom
 last of all — only if the frame budget survives it on a weak GPU. The research says it
 won't. We'll measure.
+
+---
+
+**Postscript — the playtest found the tradeoff.** Jon texted a video within the hour:
+the unlit blades glowed straw-white inside the dusk shadows — bright spikes floating
+on dark ground. The diagnosis came from the pixels (frame-pulled the video, then
+interrogated the live scene through the `__litw` debug facade), and the fix landed the
+middle path: **MeshLambertMaterial** — r147's Gouraud per-vertex lighting, cheap — with
+`receiveShadow` on, so shade eats the blades like it eats the ground. Blade palette went
+greener and darker (capped below 1.0, leaned into the lush tint) so lit blades read as
+strokes *on* the terrain instead of washing into it. Cost of doing it right: ~3fps
+(44 vs 47 baseline A/B), against the 19fps that per-pixel toon lighting wanted for the
+same pixels. Shadow map dropped from PCFSoft to plain PCF along the way — crisper edges
+suit the cel look anyway. Suite 57/57, again.
