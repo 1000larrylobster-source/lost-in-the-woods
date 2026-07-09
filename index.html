@@ -602,6 +602,103 @@ const padMarkers = [];
   }
 })();
 
+/* ------------------------------------------- components: the tower's bones -- */
+// v2 core mechanic: towers are ASSEMBLED from parts found in the world.
+// Heavy parts (tower components) are carried one at a time; drone parts pocket.
+const COMP = {
+  base:     { name: 'TOWER BASE' },
+  scaffold: { name: 'SCAFFOLD' },
+  antenna:  { name: 'ANTENNA' },
+  panel:    { name: 'SOLAR PANEL' },
+};
+const ASM_NEEDS = { base: null, scaffold: 'base', antenna: 'scaffold', panel: 'scaffold' };
+const DRONE_PARTS = ['dFrame', 'dRotors', 'dBattery', 'dCamera'];
+const DRONE_NAME = { dFrame: 'DRONE FRAME', dRotors: 'ROTORS', dBattery: 'BATTERY', dCamera: 'CAMERA' };
+
+// where the parts fell. East cluster serves tower one; the west cluster is
+// revealed with the endless watch (tower two, across the river).
+const SITES = [
+  { id: 'drop',   kind: 'Crashed supply drop',    x: 95,   z: 75,   parts: ['base'],             light: { dBattery: 1 } },
+  { id: 'shack',  kind: 'Old ranger station',     x: -40,  z: 95,   parts: ['scaffold'],         light: { dRotors: 1 } },
+  { id: 'mast',   kind: 'Lightning-felled tower', x: 55,   z: -115, parts: ['antenna', 'panel'], light: {} },
+  { id: 'drop2',  kind: 'Crashed supply drop',    x: -190, z: -40,  parts: ['base'],             light: { dBattery: 1 }, west: true },
+  { id: 'shack2', kind: 'Collapsed fire lookout', x: -170, z: 80,   parts: ['scaffold'],         light: { dRotors: 1 }, west: true },
+  { id: 'mast2',  kind: 'Downed relay mast',      x: -120, z: -160, parts: ['antenna', 'panel'], light: {}, west: true },
+];
+const LOOSE = [];   // parts set down in the open — the forest holds them for you
+
+function makePartMesh(part) {
+  const mat = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r == null ? 0.85 : r, flatShading: true });
+  let m;
+  if (part === 'base') m = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.5, 1.2), mat(0x8d8578));
+  else if (part === 'scaffold') { m = new THREE.Mesh(new THREE.BoxGeometry(0.35, 2.6, 0.35), mat(0x9aa0a8, 0.5)); m.rotation.z = Math.PI / 2 - 0.12; }
+  else if (part === 'antenna') { m = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.4, 6), mat(0x22262c, 0.4)); m.rotation.z = Math.PI / 2 + 0.2; }
+  else m = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.1, 1.1),
+    new THREE.MeshStandardMaterial({ color: 0x1c2f5e, roughness: 0.25, metalness: 0.6, emissive: 0x0c1830, emissiveIntensity: 0.5 }));
+  m.castShadow = true;
+  return m;
+}
+(function buildSites() {
+  const mat = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r == null ? 0.9 : r, flatShading: true });
+  for (const s of SITES) {
+    const y = terrainH(s.x, s.z);
+    const g = new THREE.Group();
+    // landmark by kind
+    if (s.kind.indexOf('supply drop') >= 0) {
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.9, 1.1), mat(0x6a5a3a));
+      crate.position.y = 0.45; crate.rotation.y = 0.5;
+      const chute = new THREE.Mesh(new THREE.ConeGeometry(1.6, 1.1, 7, 1, true), mat(0xd8d4cc, 0.7));
+      chute.position.set(1.6, 0.5, -0.8); chute.rotation.z = 1.9;
+      g.add(crate, chute);
+    } else if (s.kind.indexOf('ranger station') >= 0 || s.kind.indexOf('lookout') >= 0) {
+      const w1 = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.4, 0.25), mat(0x5a4632));
+      w1.position.set(0, 0.7, -1.2);
+      const w2 = new THREE.Mesh(new THREE.BoxGeometry(0.25, 1.1, 2.2), mat(0x5a4632));
+      w2.position.set(-1.3, 0.55, 0);
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.14, 2.5), mat(0x4a3826));
+      roof.position.set(0.4, 1.15, 0.2); roof.rotation.z = -0.42;
+      g.add(w1, w2, roof);
+    } else {
+      const fallen = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.14, 7, 6), mat(0x707880, 0.5));
+      fallen.position.set(1.2, 0.35, 0); fallen.rotation.z = Math.PI / 2 - 0.08;
+      const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.9, 6), mat(0x3a3230));
+      stump.position.set(-2.4, 0.45, 0);
+      g.add(fallen, stump);
+    }
+    // the parts themselves, laid out beside the landmark
+    s.partMeshes = {};
+    let off = -1.1;
+    for (const p of s.parts) {
+      const pm = makePartMesh(p);
+      pm.position.set(off, p === 'base' ? 0.25 : 0.5, 1.7);
+      s.partMeshes[p] = pm;
+      g.add(pm);
+      off += 2.2;
+    }
+    // soft beacon so the site reads at distance once the map reveals it
+    const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.5, 9, 8, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0xffc37a, transparent: true, opacity: 0.13, side: THREE.DoubleSide, depthWrite: false }));
+    beacon.position.y = 4.5;
+    beacon.name = 'siteBeacon';
+    g.add(beacon);
+    for (const m of g.children) if (m !== beacon) m.castShadow = true;
+    g.position.set(s.x, y, s.z);
+    g.visible = false;                 // revealed by the map (east) / endless (west)
+    scene.add(g);
+    s.group = g;
+    s.taken = {};
+    s.lightTaken = false;
+    s.spawned = false;
+  }
+})();
+function revealSites(west) {
+  for (const s of SITES) {
+    if (!!s.west !== !!west) continue;
+    s.spawned = true;
+    s.group.visible = true;
+  }
+}
+
 /* --------------------------------------------------- forage: berry bushes -- */
 // food lives in the valley, not just the cache: pick berries, they regrow.
 const bushes = [];
@@ -617,7 +714,8 @@ const bushes = [];
     if (Math.hypot(x - CACHE.x, z - CACHE.z) < 14) continue;       // not on the doorstep
     let nearPad = false;
     for (const p of PADS) if (Math.hypot(x - p.x, z - p.z) < 10) { nearPad = true; break; }
-    if (nearPad) continue;                                          // pads keep their prompts
+    for (const st of SITES) if (Math.hypot(x - st.x, z - st.z) < 10) { nearPad = true; break; }
+    if (nearPad) continue;                                          // pads + sites keep their prompts
     const h = terrainH(x, z);
     const steep = Math.abs(terrainH(x + 2, z) - h) + Math.abs(terrainH(x, z + 2) - h);
     if (steep > 2.2) continue;                                      // flat-ish ground only
@@ -801,21 +899,25 @@ if (IS_TOUCH) {
   document.getElementById('btnJump').style.display = 'flex';
 }
 
-const inventory = { solar: 0, droneKit: 0, map: 0, radio: 0, rations: 0 };
+const inventory = { map: 0, radio: 0, rations: 0, dFrame: 0, dRotors: 0, dBattery: 0, dCamera: 0 };
 function renderChips() {
   HUD.chips.innerHTML = '';
-  const add = (label, n) => {
+  const add = (label, n, hot) => {
     if (n <= 0) return;
     const el = document.createElement('div');
     el.className = 'chip';
-    el.innerHTML = n > 1 ? `${label} <b>×${n}</b>` : label;
+    el.innerHTML = (n > 1 ? `${label} <b>×${n}</b>` : label);
+    if (hot) el.style.borderColor = 'rgba(255,190,120,.85)';
     HUD.chips.appendChild(el);
   };
-  add('SOLAR PANEL', inventory.solar);
-  add('DRONE KIT', inventory.droneKit);
+  if (state.carrying) add('CARRYING: ' + COMP[state.carrying].name, 1, true);
   add('MAP FRAGMENT', inventory.map);
   add('RADIO PARTS', inventory.radio);
   add('RATIONS', inventory.rations);
+  add('DRONE FRAME', inventory.dFrame);
+  add('ROTORS', inventory.dRotors);
+  add('BATTERY', inventory.dBattery);
+  add('CAMERA', inventory.dCamera);
 }
 function setObjective(t) { HUD.objText.textContent = t; }
 
@@ -825,6 +927,7 @@ const state = {
   builtStation: null,   // station object once built
   nearPad: null,
   promptTarget: null,
+  carrying: null,       // heavy component on your back: 'base'|'scaffold'|'antenna'|'panel'
   time: 0,
   // survival: 1 = full, 0 = empty. warned tracks one-shot low-need alerts.
   // bo > 0 = blacking out (timer); boMoved = the wake-at-base move happened.
@@ -846,9 +949,28 @@ function nearestInteract() {
     const d = Math.hypot(px - CACHE.x, pz - CACHE.z);
     if (d < 5.5) return { type: 'cache', label: 'Search the ranger cache' };
   }
-  if (state.salvaged && state.nearPad && !stationAt(state.nearPad)) {
-    if (inventory.solar > 0 && inventory.droneKit > 0)
-      return { type: 'build', label: 'Build watch station', pad: state.nearPad };
+  // component pickup — sites first, then parts set down in the open
+  if (state.salvaged && !state.carrying) {
+    for (const s of SITES) {
+      if (!s.spawned || Math.hypot(px - s.x, pz - s.z) > 6) continue;
+      for (const p of s.parts) {
+        if (s.taken[p]) continue;
+        return { type: 'take', label: 'Shoulder the ' + COMP[p].name + ' (heavy)', site: s, part: p };
+      }
+    }
+    for (const L of LOOSE) {
+      if (Math.hypot(px - L.x, pz - L.z) < 4)
+        return { type: 'takeLoose', label: 'Shoulder the ' + COMP[L.part].name + ' (heavy)', loose: L };
+    }
+  }
+  // mount at a pad — the panel carries the action; drone assembly on a bare tower
+  if (state.salvaged && state.nearPad) {
+    const pad = state.nearPad;
+    const st = stationAt(pad);
+    if (!st && state.carrying && canMount(pad, state.carrying))
+      return { type: 'mount', label: 'Mount the ' + COMP[state.carrying].name, pad };
+    if (st && st.phase === 'needsDrone' && DRONE_PARTS.every(p => inventory[p] > 0))
+      return { type: 'droneAsm', label: 'Assemble the drone', pad };
   }
   // survival verbs — drink at the creek, eat a ration at base, forage the valley
   if (Math.abs(px - riverX(pz)) < 6.5 && state.survival.thirst < 0.98)
@@ -860,13 +982,56 @@ function nearestInteract() {
     if (Math.hypot(px - b.x, pz - b.z) < 3.4)
       return { type: 'forage', label: 'Pick mountain berries', bush: b };
   }
+  // last resort while hauling: set the thing down
+  if (state.carrying)
+    return { type: 'drop', label: 'Set the ' + COMP[state.carrying].name + ' down' };
   return null;
+}
+function canMount(pad, comp) {
+  if (stationAt(pad)) return false;
+  const asm = assemblies.get(pad.id);
+  if (comp === 'base') return !asm;
+  return !!(asm && asm.mounted[ASM_NEEDS[comp]] && !asm.mounted[comp]);
 }
 function tryInteract() {
   const t = state.promptTarget;
   if (!t) return;
   if (t.type === 'cache') doSalvage();
-  else if (t.type === 'build') buildStation(t.pad);
+  else if (t.type === 'take') {
+    state.carrying = t.part;
+    t.site.taken[t.part] = true;
+    t.site.partMeshes[t.part].visible = false;
+    collectLights(t.site);
+    renderChips();
+    toast('You shoulder the ' + COMP[t.part].name + '. It is heavy.', 'good');
+    saveForest();
+  }
+  else if (t.type === 'takeLoose') {
+    state.carrying = t.loose.part;
+    scene.remove(t.loose.mesh);
+    LOOSE.splice(LOOSE.indexOf(t.loose), 1);
+    renderChips();
+    toast('You shoulder the ' + COMP[t.loose.part].name + ' again.', 'good');
+    saveForest();
+  }
+  else if (t.type === 'drop') {
+    const part = state.carrying;
+    state.carrying = null;
+    const m = makePartMesh(part);
+    const y = terrainH(player.pos.x, player.pos.z);
+    m.position.set(player.pos.x + 0.9, y + (part === 'base' ? 0.25 : 0.5), player.pos.z + 0.9);
+    scene.add(m);
+    LOOSE.push({ part, x: player.pos.x + 0.9, z: player.pos.z + 0.9, mesh: m });
+    renderChips();
+    toast('You set the ' + COMP[part].name + ' down. The forest will hold it.', 'good');
+    saveForest();
+  }
+  else if (t.type === 'mount') {
+    mountComponent(t.pad, state.carrying);
+    state.carrying = null;
+    renderChips();
+  }
+  else if (t.type === 'droneAsm') assembleDrone(t.pad);
   else if (t.type === 'drink') { state.survival.thirst = 1; toast('Cold creek water. Thirst slaked.', 'good'); saveForest(); }
   else if (t.type === 'eat') {
     if (inventory.rations > 0) {
@@ -888,17 +1053,29 @@ function tryInteract() {
 function doSalvage() {
   if (state.salvaged) return;
   state.salvaged = true;
-  inventory.solar = 1; inventory.droneKit = 1; inventory.map = 1; inventory.rations = 2;
+  // the cache holds the light kit: the map, food, and the drone's brain + eyes
+  inventory.map = 1; inventory.rations = 2; inventory.dFrame = 1; inventory.dCamera = 1;
   renderChips();
   HUD.vitals.style.display = 'flex';   // your needs become visible once you have your bearings
   cacheGroup.getObjectByName('beacon').visible = false;
-  // map fragment reveals the candidate pads
+  // map fragment reveals the candidate pads AND where the tower parts fell
   for (const g of padMarkers) {
     g.getObjectByName('pillar').visible = true;
     g.getObjectByName('ring').visible = true;
   }
-  setObjective('Site the first watch station — ridge, meadow, or treeline. Walk to a pad.');
+  revealSites(false);
+  setObjective('The map marks where the tower parts fell — base, scaffold, antenna, panel. Haul them to a pad, one at a time.');
   Events.emit('salvage', { inventory: Object.assign({}, inventory) });
+}
+function collectLights(site) {
+  if (site.lightTaken) return;
+  site.lightTaken = true;
+  let got = [];
+  for (const k in site.light) {
+    inventory[k] += site.light[k];
+    got.push(DRONE_NAME[k]);
+  }
+  if (got.length) { renderChips(); toast('+ ' + got.join(', ') + ' — into the pack.', 'good'); }
 }
 
 /* ------------------------------------------- siting: the three real reads - */
@@ -1097,7 +1274,12 @@ function makeStationMesh() {
   const whipTip = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6), mat(0x22262c, 0.4));
   whipTip.position.set(-0.22, 10.35, 0);
   for (const m of [base, mast, brace1, brace2, box, camBox, lens, whip, whipTip]) m.castShadow = true;
-  g.add(base, mast, brace1, brace2, panel, box, led, camBox, lens, whip, whipTip);
+  // group by COMPONENT so assembly can raise the tower piece by piece
+  const gBase = new THREE.Group(); gBase.name = 'c_base'; gBase.add(base, box, led);
+  const gScaf = new THREE.Group(); gScaf.name = 'c_scaffold'; gScaf.add(mast, brace1, brace2);
+  const gAnt = new THREE.Group(); gAnt.name = 'c_antenna'; gAnt.add(whip, whipTip, camBox, lens);
+  const gPan = new THREE.Group(); gPan.name = 'c_panel'; gPan.add(panel);
+  g.add(gBase, gScaf, gAnt, gPan);
   return g;
 }
 function makeDroneMesh() {
@@ -1131,22 +1313,34 @@ function makeDroneMesh() {
   return { group: g, rotors };
 }
 function stationAt(pad) { for (const s of stations) if (s.pad === pad) return s; return null; }
-function buildStation(pad) {
-  if (stationAt(pad)) return false;
-  if (inventory.solar < 1 || inventory.droneKit < 1) return false;
-  inventory.solar--; inventory.droneKit--;
-  renderChips();
+
+/* -------------------------------------- assembly: the tower rises by hand -- */
+const assemblies = new Map();   // pad.id → { pad, mesh, mounted: {} }
+function mountComponent(pad, comp) {
+  if (!canMount(pad, comp)) return false;
+  let asm = assemblies.get(pad.id);
+  if (!asm) {
+    const mesh = makeStationMesh();
+    mesh.position.set(pad.x, terrainH(pad.x, pad.z) + 0.2, pad.z);
+    for (const c of ['c_base', 'c_scaffold', 'c_antenna', 'c_panel'])
+      mesh.getObjectByName(c).visible = false;
+    scene.add(mesh);
+    asm = { pad, mesh, mounted: {} };
+    assemblies.set(pad.id, asm);
+  }
+  asm.mounted[comp] = true;
+  asm.mesh.getObjectByName('c_' + comp).visible = true;
+  const left = Object.keys(COMP).filter(c => !asm.mounted[c]);
+  toast(COMP[comp].name + ' MOUNTED' + (left.length ? ' — still needs: ' + left.map(c => COMP[c].name).join(', ') : ''), 'good');
+  if (!left.length) completeStation(pad);
+  else saveForest();
+  return true;
+}
+function completeStation(pad) {
+  const asm = assemblies.get(pad.id);
+  assemblies.delete(pad.id);
   const y = terrainH(pad.x, pad.z);
-  const mesh = makeStationMesh();
-  mesh.position.set(pad.x, y + 0.2, pad.z);
-  mesh.scale.set(1, 0.01, 1);
-  scene.add(mesh);
-  // drone
-  const dm = makeDroneMesh();
-  dm.group.position.set(pad.x, y + 1.2, pad.z);
-  dm.group.visible = false;
-  scene.add(dm.group);
-  // patrol waypoints: a ring sweep of the sector
+  // patrol waypoints: a ring sweep of the sector (flown once the drone exists)
   const wps = [];
   const R = 95, NWP = 10;
   for (let k = 0; k < NWP; k++) {
@@ -1155,22 +1349,40 @@ function buildStation(pad) {
     const wy = Math.max(terrainH(wx, wz) + 20, y + 22);
     wps.push(new THREE.Vector3(wx, wy, wz));
   }
-  const cov = coverageFor(pad);
   const st = {
-    pad, mesh, drone: dm.group, rotors: dm.rotors,
-    wps, wpIdx: 0, phase: 'building', phaseT: 0,
-    coverage: cov, revealed: new Set(),
+    pad, mesh: asm.mesh, drone: null, rotors: [],
+    wps, wpIdx: 0, phase: 'needsDrone', phaseT: 0,
+    coverage: coverageFor(pad), revealed: new Set(),
   };
   stations.push(st);
   if (!state.builtStation) state.builtStation = st;
-  // hide this pad's marker; other pads stay visible (phase 2 salvage powers them)
   const gi = PADS.indexOf(pad);
   padMarkers[gi].getObjectByName('pillar').visible = false;
   padMarkers[gi].getObjectByName('ring').visible = false;
   setPreview(null);
+  setObjective('Tower standing. Now the drone — frame, rotors, battery, camera — and assemble it at the tower.');
+  Events.emit('stationBuilt', { padId: pad.id });
+  saveForest();
+  return st;
+}
+function assembleDrone(pad) {
+  const st = stationAt(pad);
+  if (!st || st.phase !== 'needsDrone') return false;
+  if (!DRONE_PARTS.every(p => inventory[p] > 0)) return false;
+  for (const p of DRONE_PARTS) inventory[p]--;
+  renderChips();
+  const y = terrainH(pad.x, pad.z);
+  const dm = makeDroneMesh();
+  dm.group.position.set(pad.x, y + 1.2, pad.z);
+  dm.group.visible = false;
+  scene.add(dm.group);
+  st.drone = dm.group;
+  st.rotors = dm.rotors;
+  st.phase = 'boot'; st.phaseT = 0;
   HUD.coverage.style.display = 'block';
   setObjective('Station online — first watch. The drone is sweeping its sector.');
-  Events.emit('stationBuilt', { padId: pad.id });
+  toast('DRONE ASSEMBLED — booting the node.', 'good');
+  saveForest();
   return true;
 }
 function coveragePercent() {
@@ -1226,14 +1438,15 @@ function updateStations(dt) {
         }
       }
     }
-    // LED heartbeat once powered
+    // LED heartbeat once powered — amber while the tower waits for its drone
     const led = st.mesh.getObjectByName('led');
     if (led && st.phase !== 'building') {
-      led.material.color.setHex(Math.sin(state.time * 5) > 0 ? 0x51ff7e : 0x1a4a28);
+      const on = Math.sin(state.time * 5) > 0;
+      led.material.color.setHex(st.phase === 'needsDrone' ? (on ? 0xffb347 : 0x5a3a14) : (on ? 0x51ff7e : 0x1a4a28));
     }
     // rotors + detection cone (visual capped so it reads as a scan beam,
     // not a wall, when the terrain drops away under the patrol ring)
-    if (st.drone.visible) {
+    if (st.drone && st.drone.visible) {
       for (const r of st.rotors) r.rotation.y += dt * 45;
       const gY = terrainH(st.drone.position.x, st.drone.position.z);
       const H = clamp(st.drone.position.y - gY, 4, 34);
@@ -1263,15 +1476,18 @@ function updatePads() {
   }
   const pad = state.nearPad;
   const showPanel = pad && !stationAt(pad);
-  const canBuild = showPanel && inventory.solar > 0 && inventory.droneKit > 0;
   if (!showPanel) {
     if (shownPad) { HUD.padPanel.style.display = 'none'; shownPad = null; }
     setPreview(null);
     return;
   }
-  setPreview(canBuild ? pad : null);
-  if (shownPad === pad && shownCanBuild === canBuild) return;  // DOM only on change
-  shownPad = pad; shownCanBuild = canBuild;
+  const asm = assemblies.get(pad.id);
+  // preview the coverage cone while you're deciding (hauling the base) or building
+  setPreview(state.carrying === 'base' || asm ? pad : null);
+  const mountable = state.carrying && canMount(pad, state.carrying);
+  const key = pad.id + '|' + (state.carrying || '-') + '|' + (asm ? Object.keys(asm.mounted).sort().join('.') : '-');
+  if (shownPad === pad && shownCanBuild === key) return;  // DOM only on change
+  shownPad = pad; shownCanBuild = key;
   const m = padMetersCached(pad);
   HUD.padPanel.style.display = 'block';
   HUD.padName.textContent = pad.name;
@@ -1279,14 +1495,28 @@ function updatePads() {
   HUD.mElev.style.width = Math.round(m.elev * 100) + '%'; HUD.nElev.textContent = Math.round(m.elev * 100);
   HUD.mSun.style.width = Math.round(m.sun * 100) + '%'; HUD.nSun.textContent = Math.round(m.sun * 100);
   HUD.mLos.style.width = Math.round(m.los * 100) + '%'; HUD.nLos.textContent = Math.round(m.los * 100);
-  if (canBuild) {
+  const check = Object.keys(COMP)
+    .map(c => ((asm && asm.mounted[c]) ? '✓ ' : '· ') + COMP[c].name).join(' &nbsp; ');
+  if (mountable) {
     HUD.padAction.className = '';
-    HUD.padAction.innerHTML = IS_TOUCH
-      ? 'TAP <b>●</b> TO BUILD — uses 1 Solar Panel + 1 Drone Kit'
-      : '<span class="key">E</span> BUILD STATION — uses 1 Solar Panel + 1 Drone Kit';
+    HUD.padAction.innerHTML = (IS_TOUCH
+      ? 'TAP <b>●</b> — MOUNT THE ' + COMP[state.carrying].name
+      : '<span class="key">E</span> MOUNT THE ' + COMP[state.carrying].name)
+      + '<br><small>' + check + '</small>';
+  } else if (state.carrying) {
+    HUD.padAction.className = 'dim';
+    HUD.padAction.innerHTML = (state.carrying === 'base'
+      ? 'A base is already set on this pad.'
+      : (asm && asm.mounted[state.carrying])
+        ? 'The ' + COMP[state.carrying].name + ' is already mounted here.'
+        : 'The ' + COMP[state.carrying].name + ' needs the ' + COMP[ASM_NEEDS[state.carrying]].name + ' mounted first.')
+      + '<br><small>' + check + '</small>';
+  } else if (asm) {
+    HUD.padAction.className = 'dim';
+    HUD.padAction.innerHTML = 'Tower rising here.<br><small>' + check + '</small>';
   } else {
     HUD.padAction.className = 'dim';
-    HUD.padAction.textContent = 'No parts left — salvage more to power this pad.';
+    HUD.padAction.textContent = 'Haul the TOWER BASE here to found the station.';
   }
 }
 
@@ -1306,9 +1536,10 @@ function updateCharacter(dt) {
   const wantSprint = keys['ShiftLeft'] || keys['ShiftRight'] ||
     (input.joy && Math.hypot(input.joy.dx, input.joy.dy) > 0.93);
   s.sprinting = !!wantSprint && !s.winded && s.stamina > 0 && wishLen > 0.01 && s.bo <= 0 && !player.airborne;
-  // running on empty (no food or no water) saps your pace
+  // running on empty (no food or no water) saps your pace; hauling steel is slow work
   const spent = (s.hunger <= 0 || s.thirst <= 0) ? 0.5 : 1;
-  const MAXSPD = 6.2 * spent * (s.sprinting ? 1.55 : 1), ACC = 22, DEC = 26;
+  const haul = state.carrying ? 0.8 : 1;
+  const MAXSPD = 6.2 * spent * haul * (s.sprinting ? 1.55 : 1), ACC = 22, DEC = 26;
   if (wishLen > 0.01) {
     wish.normalize();
     // smooth turn toward the move direction
@@ -1412,8 +1643,8 @@ function updateCamera(dt) {
 function updateInteract() {
   const t = nearestInteract();
   state.promptTarget = t;
-  // build prompt is carried by the pad panel; everything else uses the floating pill
-  const showPill = t && t.type !== 'build';
+  // mount prompts are carried by the pad panel; everything else uses the floating pill
+  const showPill = t && t.type !== 'mount';
   HUD.prompt.style.display = showPill ? 'flex' : 'none';
   if (showPill) HUD.promptText.textContent = t.label;
   if (IS_TOUCH) HUD.btnAct.style.display = t ? 'flex' : 'none';
@@ -1462,10 +1693,10 @@ function updateSurvival(dt) {
     if (s.thirst <= 0) wear += PARCH_HP;
     if (wear > 0) s.health = clamp(s.health - dt * wear, 0, 1);
     else if (s.hunger > 0.5 && s.thirst > 0.5) s.health = clamp(s.health + dt * REGEN_HP, 0, 1);
-    // stamina: sprinting spends it (~7s of full wind); easing off earns it back —
-    // faster standing still, at half rate when you're hungry or parched
+    // stamina: sprinting spends it (~7s of full wind; ~4.5s hauling steel);
+    // easing off earns it back — faster standing still, half rate hungry/parched
     if (s.sprinting) {
-      s.stamina = clamp(s.stamina - dt / 7, 0, 1);
+      s.stamina = clamp(s.stamina - dt / (state.carrying ? 4.5 : 7), 0, 1);
     } else {
       const rate = (player.speed < 0.4 ? 1 / 6 : 1 / 12) * ((s.hunger < 0.25 || s.thirst < 0.25) ? 0.5 : 1);
       s.stamina = clamp(s.stamina + dt * rate, 0, 1);
@@ -1500,6 +1731,13 @@ function update(dt) {
   }
   // picked bushes quietly regrow their berries
   for (const b of bushes) if (!b.berries.visible && bushReady(b)) b.berries.visible = true;
+  // walking into a site pockets its small parts automatically
+  if (state.salvaged) {
+    for (const s of SITES) {
+      if (!s.spawned || s.lightTaken) continue;
+      if (Math.hypot(player.pos.x - s.x, player.pos.z - s.z) < 6.5) collectLights(s);
+    }
+  }
   // fade + hint are clocked off game time (CSS transitions stall under
   // headless virtual time, and the test harness needs determinism anyway)
   const introK = Math.max(0, 1 - state.time / 2.2);
@@ -1619,7 +1857,8 @@ function drawOverlay() {
 /* ------------------------------------------------------- debug/test hooks -- */
 const G = {
   state, player, cam, camera, inventory, stations, PADS, CACHE, SPAWN, bushes,
-  terrainH, padMeters, coverageFor, coveragePercent, buildStation, doSalvage,
+  SITES, LOOSE, assemblies, COMP, DRONE_PARTS, canMount, mountComponent, completeStation, assembleDrone,
+  terrainH, padMeters, coverageFor, coveragePercent, doSalvage,
   tryInteract, keys, trees, fogTarget, fogState, errors, Events,
   step(n) { for (let i = 0; i < (n || 1); i++) update(1 / 60); },
   teleport(x, z) {
@@ -2012,7 +2251,7 @@ function detectStep(dt) {
   for (const [k, c] of fire.cells) {
     if (c.reported) continue;
     for (const st of stations) {
-      if (!st.drone.visible || !st.coverage.cells.has(k)) continue;
+      if (!st.drone || !st.drone.visible || !st.coverage.cells.has(k)) continue;
       if (Math.hypot(st.drone.position.x - c.anchor[0], st.drone.position.z - c.anchor[2]) < dr) {
         c.reported = true;
         toast('SMOKE CONFIRMED — hike in and cut it off', 'alert');
@@ -2026,7 +2265,7 @@ function detectStep(dt) {
   if (hiker.active && !hiker.marked && !hiker.rescued) {
     const k = cellIndexFor(hiker.pos.x, hiker.pos.z);
     for (const st of stations) {
-      if (!st.drone.visible || !st.coverage.cells.has(k)) continue;
+      if (!st.drone || !st.drone.visible || !st.coverage.cells.has(k)) continue;
       if (Math.hypot(st.drone.position.x - hiker.pos.x, st.drone.position.z - hiker.pos.z) < dr) {
         hiker.marked = true;
         hikerBeacon.visible = true;
@@ -2209,11 +2448,12 @@ function spawnCache2() {
 function doSalvage2() {
   if (!cache2.spawned || cache2.salvaged) return;
   cache2.salvaged = true;
-  inventory.solar++; inventory.droneKit++; inventory.radio++; inventory.rations += 2;
+  inventory.dFrame++; inventory.dCamera++; inventory.radio++; inventory.rations += 2;
   renderChips();
   cache2.group.getObjectByName('beacon2').visible = false;
+  revealSites(true);   // the west woods hold the second tower's bones
   toast('RADIO PARTS — the mesh wants a second node', 'good');
-  setObjective('Parts for station two. Site it where the first one is blind.');
+  setObjective('Parts for tower two lie in the west woods. Site it where the first one is blind.');
   saveForest();
   Events.emit('salvage2', {});
 }
@@ -2262,7 +2502,7 @@ function firstSmoke() {
   arc.smokeArmed = false;
   let k = -1;
   const st = state.builtStation;
-  if (st && st.drone.visible) {
+  if (st && st.drone && st.drone.visible) {
     // a good site gets its payoff: ignition lands where the drone will confirm it
     const dr = detectRadius();
     const cand = [];
@@ -2510,25 +2750,28 @@ function saveForest() {
       v: 1,
       burned: Array.from(fire.burned),
       stations: stations.map(s => s.pad.id),
-      inv: { solar: inventory.solar, droneKit: inventory.droneKit, map: inventory.map, radio: inventory.radio, rations: inventory.rations },
+      needsDrone: stations.filter(s => s.phase === 'needsDrone').map(s => s.pad.id),
+      inv: Object.assign({}, inventory),
       surv: { h: state.survival.health, hu: state.survival.hunger, th: state.survival.thirst },
+      carrying: state.carrying,
+      mounts: Array.from(assemblies.values()).map(a => ({ padId: a.pad.id, mounted: Object.keys(a.mounted) })),
+      sites: SITES.map(s => ({ id: s.id, taken: Object.keys(s.taken).filter(k => s.taken[k]), light: s.lightTaken })),
+      loose: LOOSE.map(L => ({ part: L.part, x: L.x, z: L.z })),
       day: clock.day, score: score.n,
       best: Math.max(coveragePercent(), (loadForest() || {}).best || 0),
-      cache2: cache2.salvaged, rescued: hiker.done,
+      cache2: cache2.salvaged, rescued: hiker.done, salvaged: state.salvaged,
     }));
   } catch (e) { /* saving must never crash the watch */ }
 }
 function loadForest() {
   try { return JSON.parse(store.getItem(SAVE_KEY) || 'null'); } catch (e) { return null; }
 }
-function restoreStation(pad) {
+function restoreStation(pad, needsDrone) {
   if (stationAt(pad)) return;
   const y = terrainH(pad.x, pad.z);
   const mesh = makeStationMesh();
   mesh.position.set(pad.x, y + 0.2, pad.z);
   scene.add(mesh);
-  const dm = makeDroneMesh();
-  scene.add(dm.group);
   const wps = [];
   const R = 95, NWP = 10;
   for (let k = 0; k < NWP; k++) {
@@ -2536,21 +2779,28 @@ function restoreStation(pad) {
     const wx = pad.x + Math.cos(a) * R, wz = pad.z + Math.sin(a) * R;
     wps.push(new THREE.Vector3(wx, Math.max(terrainH(wx, wz) + 20, y + 22), wz));
   }
-  dm.group.position.copy(wps[0]);
-  dm.group.visible = true;
   const cov = coverageFor(pad);
   const st = {
-    pad, mesh, drone: dm.group, rotors: dm.rotors,
-    wps, wpIdx: 0, phase: 'patrol', phaseT: 0,
-    coverage: cov, revealed: new Set(cov.cells),
+    pad, mesh, drone: null, rotors: [],
+    wps, wpIdx: 0, phase: 'needsDrone', phaseT: 0,
+    coverage: cov, revealed: new Set(),
   };
-  for (const c of cov.cells) fogTarget[c] = 0;
+  if (!needsDrone) {
+    const dm = makeDroneMesh();
+    scene.add(dm.group);
+    dm.group.position.copy(wps[0]);
+    dm.group.visible = true;
+    st.drone = dm.group; st.rotors = dm.rotors;
+    st.phase = 'patrol';
+    st.revealed = new Set(cov.cells);
+    for (const c of cov.cells) fogTarget[c] = 0;
+    HUD.coverage.style.display = 'block';
+  }
   stations.push(st);
   if (!state.builtStation) state.builtStation = st;
   const gi = PADS.indexOf(pad);
   padMarkers[gi].getObjectByName('pillar').visible = false;
   padMarkers[gi].getObjectByName('ring').visible = false;
-  HUD.coverage.style.display = 'block';
 }
 let restored = false;
 function restoreForest() {
@@ -2563,15 +2813,51 @@ function restoreForest() {
       applyBurnVisual(k);   // the scar was always there
     }
   }
-  if (Array.isArray(data.stations) && data.stations.length) {
+  const hasStations = Array.isArray(data.stations) && data.stations.length > 0;
+  if (hasStations || data.salvaged) {
     restored = true;
     state.salvaged = true;
-    if (data.inv) { inventory.solar = data.inv.solar | 0; inventory.droneKit = data.inv.droneKit | 0; inventory.map = data.inv.map | 0; inventory.radio = data.inv.radio | 0; inventory.rations = data.inv.rations | 0; }
+    if (data.inv) {
+      for (const k in inventory) if (k in data.inv) inventory[k] = data.inv[k] | 0;
+      // old-format saves: a DRONE KIT was a whole drone in a box — unpack it
+      if (data.inv.droneKit) for (const p of DRONE_PARTS) inventory[p] += data.inv.droneKit | 0;
+    }
     if (data.surv) {
       state.survival.health = clamp(+data.surv.h || 1, 0.05, 1);   // never restore into a blackout
       state.survival.hunger = clamp(+data.surv.hu || 0, 0, 1);
       state.survival.thirst = clamp(+data.surv.th || 0, 0, 1);
     }
+    // component world-state: what was taken, carried, set down, half-built
+    if (Array.isArray(data.sites)) {
+      for (const sd of data.sites) {
+        const s = SITES.find(x => x.id === sd.id);
+        if (!s) continue;
+        s.lightTaken = !!sd.light;
+        for (const p of (sd.taken || [])) {
+          s.taken[p] = true;
+          if (s.partMeshes[p]) s.partMeshes[p].visible = false;
+        }
+      }
+    }
+    if (data.carrying && COMP[data.carrying]) state.carrying = data.carrying;
+    if (Array.isArray(data.loose)) {
+      for (const Ld of data.loose) {
+        if (!COMP[Ld.part]) continue;
+        const m = makePartMesh(Ld.part);
+        m.position.set(Ld.x, terrainH(Ld.x, Ld.z) + (Ld.part === 'base' ? 0.25 : 0.5), Ld.z);
+        scene.add(m);
+        LOOSE.push({ part: Ld.part, x: Ld.x, z: Ld.z, mesh: m });
+      }
+    }
+    if (Array.isArray(data.mounts)) {
+      for (const md of data.mounts) {
+        const pad = PADS.find(p => p.id === md.padId);
+        if (!pad || stationAt(pad)) continue;
+        for (const c of (md.mounted || [])) if (COMP[c]) mountComponent(pad, c);
+      }
+    }
+    revealSites(false);
+    if (data.cache2) revealSites(true);
     HUD.vitals.style.display = 'flex';
     renderChips();
     cacheGroup.getObjectByName('beacon').visible = false;
@@ -2579,21 +2865,36 @@ function restoreForest() {
       g.getObjectByName('pillar').visible = true;
       g.getObjectByName('ring').visible = true;
     }
-    for (const id of data.stations) {
-      const pad = PADS.find(p => p.id === id);
-      if (pad) restoreStation(pad);
-    }
     clock.day = data.day || 1;
     if (data.score) score.add(data.score);
     hiker.done = !!data.rescued;
-    arc.phase = 'endless';
-    arc.cineDone = true;
-    arc.endlessNextT = 60 + fireRng() * 90;
-    if (data.cache2) { cache2.spawned = true; cache2.salvaged = true; }
-    else spawnCache2();
-    hudK = 1;
-    showWatchInstruments();
-    setObjective('The forest remembers you. The watch resumes.');
+    if (hasStations) {
+      const nd = new Set(data.needsDrone || []);
+      for (const id of data.stations) {
+        const pad = PADS.find(p => p.id === id);
+        if (pad) restoreStation(pad, nd.has(id));
+      }
+      const anyFlying = data.stations.length > nd.size;
+      if (anyFlying) {
+        // a live watch resumes where it left off — endless, fires and all
+        arc.phase = 'endless';
+        arc.cineDone = true;
+        arc.endlessNextT = 60 + fireRng() * 90;
+        if (data.cache2) { cache2.spawned = true; cache2.salvaged = true; }
+        else spawnCache2();
+        hudK = 1;
+        showWatchInstruments();
+        setObjective('The forest remembers you. The watch resumes.');
+      } else {
+        // tower up, drone still in pieces — the first watch hasn't begun
+        arc.phase = 'watch';
+        setObjective('Tower standing. Now the drone — frame, rotors, battery, camera — and assemble it at the tower.');
+      }
+    } else {
+      // salvaged mid-assembly: the hauling continues where you dropped it
+      arc.phase = 'site';
+      setObjective('The map marks where the tower parts fell — base, scaffold, antenna, panel. Haul them to a pad, one at a time.');
+    }
   }
 }
 
@@ -2699,8 +3000,11 @@ async function runTests() {
     assert(state.promptTarget && state.promptTarget.type === 'cache', 'no cache prompt');
     tryInteract();
     G.step(5);
-    assert(inventory.solar === 1 && inventory.droneKit === 1 && inventory.map === 1, 'salvage did not fill inventory');
-    return 'solar+droneKit+map salvaged';
+    assert(inventory.map === 1 && inventory.rations === 2, 'salvage did not fill inventory');
+    assert(inventory.dFrame === 1 && inventory.dCamera === 1, 'drone brain+eyes not in the cache');
+    const east = SITES.filter(s => !s.west);
+    assert(east.length === 3 && east.every(s => s.spawned && s.group.visible), 'east component sites not revealed');
+    return 'map+rations+frame+camera salvaged; 3 sites on the map';
   });
   await raf();
 
@@ -2926,17 +3230,96 @@ async function runTests() {
   });
   await raf();
 
-  T('build deducts salvage + station powers up', () => {
+  T('hauling: a component on your back slows you', () => {
+    const run = () => {
+      G.teleport(SPAWN.x, SPAWN.z);
+      const x0 = player.pos.x, z0 = player.pos.z;
+      keys['KeyW'] = true; G.step(120); keys['KeyW'] = false;
+      return Math.hypot(player.pos.x - x0, player.pos.z - z0);
+    };
+    const s = state.survival; s.hunger = 1; s.thirst = 1; s.stamina = 1; s.winded = false;
+    state.carrying = null;
+    const dFree = run();
+    state.carrying = 'base';
+    const dLoaded = run();
+    state.carrying = null;
+    assert(dLoaded < dFree * 0.9, 'no hauling penalty: ' + dLoaded.toFixed(1) + ' vs ' + dFree.toFixed(1));
+    return 'free ' + dFree.toFixed(1) + 'm vs hauling ' + dLoaded.toFixed(1) + 'm per 2s';
+  });
+  await raf();
+
+  T('tower assembly: haul, order enforced, no softlock', () => {
+    const ridge = PADS[0];
+    const shack = SITES.find(s => s.id === 'shack');
+    const drop = SITES.find(s => s.id === 'drop');
+    // grab the SCAFFOLD first — the wrong-order piece
+    G.teleport(shack.x + 2, shack.z + 2); G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'take', 'no take prompt at the shack: ' + (state.promptTarget && state.promptTarget.type));
+    tryInteract();
+    assert(state.carrying === 'scaffold', 'not carrying the scaffold');
+    assert(inventory.dRotors >= 1, 'shack rotors not pocketed');
+    // carrying blocks a second heavy pickup
+    G.teleport(drop.x + 2, drop.z + 2); G.step(3);
+    assert(!(state.promptTarget && state.promptTarget.type === 'take'), 'took a second heavy part while loaded');
+    assert(inventory.dBattery >= 1, 'drop battery not pocketed in passing');
+    // at the pad: scaffold without base is refused — set it down instead
+    G.teleport(ridge.x + 3, ridge.z); G.step(3);
+    assert(!(state.promptTarget && state.promptTarget.type === 'mount'), 'mounted scaffold with no base');
+    assert(state.promptTarget && state.promptTarget.type === 'drop', 'no set-down offered — softlock!');
+    tryInteract();
+    assert(!state.carrying && LOOSE.length === 1, 'set-down failed');
+    // fetch the BASE, found the tower
+    G.teleport(drop.x + 2, drop.z + 2); G.step(3);
+    tryInteract();
+    assert(state.carrying === 'base', 'base not shouldered');
+    G.teleport(ridge.x + 3, ridge.z); G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'mount', 'base not mountable at pad');
+    tryInteract();
+    assert(assemblies.get(ridge.id) && assemblies.get(ridge.id).mounted.base, 'base not mounted');
+    // pick the scaffold back up off the ground and mount it
+    G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'takeLoose', 'loose scaffold not offered: ' + (state.promptTarget && state.promptTarget.type));
+    tryInteract();
+    G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'mount', 'scaffold not mountable after base');
+    tryInteract();
+    // antenna + panel from the felled tower — two hauls
+    const mast = SITES.find(s => s.id === 'mast');
+    for (let i = 0; i < 2; i++) {
+      G.teleport(mast.x + 2, mast.z + 2); G.step(3);
+      assert(state.promptTarget && state.promptTarget.type === 'take', 'mast part ' + i + ' not offered');
+      tryInteract();
+      G.teleport(ridge.x + 3, ridge.z); G.step(3);
+      assert(state.promptTarget && state.promptTarget.type === 'mount', 'mast part ' + i + ' not mountable');
+      tryInteract();
+    }
+    const st = stationAt(ridge);
+    assert(st && st.phase === 'needsDrone', 'tower did not complete: ' + (st && st.phase));
+    assert(!assemblies.get(ridge.id), 'assembly not cleared on completion');
+    for (const c of ['c_base', 'c_scaffold', 'c_antenna', 'c_panel'])
+      assert(st.mesh.getObjectByName(c).visible, c + ' not standing');
+    return 'scaffold refused before base, set down, recovered; tower raised in 4 mounts';
+  });
+  await raf();
+
+  T('drone assembly: all four parts, then the watch begins', () => {
     const ridge = PADS[0];
     G.teleport(ridge.x + 3, ridge.z);
-    G.step(5);
-    const ok = buildStation(ridge);
-    assert(ok, 'build refused');
-    assert(inventory.solar === 0 && inventory.droneKit === 0, 'salvage not deducted');
-    assert(stations.length === 1, 'no station');
-    G.step(120);  // build anim + boot
-    assert(stations[0].phase !== 'building', 'station stuck building');
-    return 'built on ridge, parts consumed, phase=' + stations[0].phase;
+    // a missing part is refused
+    const stash = inventory.dBattery; inventory.dBattery = 0;
+    G.step(3);
+    assert(!(state.promptTarget && state.promptTarget.type === 'droneAsm'), 'assembled a drone with no battery');
+    inventory.dBattery = stash;
+    G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'droneAsm', 'complete parts not offered: ' + (state.promptTarget && state.promptTarget.type));
+    tryInteract();
+    const st = stationAt(ridge);
+    assert(st.drone, 'no drone created');
+    assert(st.phase === 'boot', 'station not booting: ' + st.phase);
+    assert(DRONE_PARTS.every(p => inventory[p] === 0), 'drone parts not consumed');
+    G.step(120);
+    assert(st.phase !== 'building', 'station stuck');
+    return 'refused without battery; assembled, parts consumed, phase=' + st.phase;
   });
   await raf();
 
