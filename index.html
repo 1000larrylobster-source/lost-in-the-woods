@@ -176,7 +176,7 @@
       <button id="btnNew" class="ghost">NEW WATCH</button>
     </div>
     <div class="prog" id="titleProg"></div>
-    <div class="brand">AN <b>AIOS</b> GAME &nbsp;·&nbsp; BUILT IN PUBLIC &nbsp;·&nbsp; v0.9</div>
+    <div class="brand">AN <b>AIOS</b> GAME &nbsp;·&nbsp; BUILT IN PUBLIC &nbsp;·&nbsp; v1.0</div>
   </div>
   <canvas id="overlay"></canvas>
   <div id="fade"></div>
@@ -468,6 +468,59 @@ const sky = new THREE.Mesh(
   })
 );
 scene.add(sky);
+
+/* look pass: stars that come out with the dark, clouds that ride the wind */
+const starMats = [];
+(function buildStars() {
+  let seed = 977;
+  const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+  for (const [count, size, tint] of [[150, 2.4, 0xdfe8ff], [70, 4.2, 0xfff2d8]]) {
+    const arr = [];
+    for (let i = 0; i < count; i++) {
+      const az = rnd() * Math.PI * 2;
+      const el = 0.12 + rnd() * 1.35;
+      arr.push(Math.cos(el) * Math.sin(az) * 1340, Math.sin(el) * 1340, Math.cos(el) * Math.cos(az) * 1340);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+    const m = new THREE.PointsMaterial({ color: tint, size, transparent: true, opacity: 0, sizeAttenuation: false, depthWrite: false });
+    starMats.push(m);
+    sky.add(new THREE.Points(geo, m));
+  }
+})();
+const clouds = [];
+(function buildClouds() {
+  let seed = 31337;
+  const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+  const mat = new THREE.MeshStandardMaterial({ color: 0xe8e8ee, roughness: 1, transparent: true, opacity: 0.42, flatShading: true, depthWrite: false });
+  for (let i = 0; i < 8; i++) {
+    const g = new THREE.Group();
+    const n = 3 + Math.round(rnd() * 2);
+    for (let b = 0; b < n; b++) {
+      const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(18 + rnd() * 16, 0), mat);
+      blob.position.set((rnd() - 0.5) * 60, (rnd() - 0.5) * 8, (rnd() - 0.5) * 30);
+      blob.scale.y = 0.35;
+      g.add(blob);
+    }
+    g.position.set((rnd() * 2 - 1) * 700, 270 + rnd() * 90, (rnd() * 2 - 1) * 700);
+    scene.add(g);
+    clouds.push(g);
+  }
+  clouds.mat = mat;
+})();
+function skyDressStep(dt) {
+  const starK = clock.nightK * (1 - storm.k * 0.8);
+  starMats[0].opacity += (0.85 * starK - starMats[0].opacity) * Math.min(1, dt * 2);
+  starMats[1].opacity += (0.95 * starK - starMats[1].opacity) * Math.min(1, dt * 2);
+  clouds.mat.opacity = 0.42 * (1 - clock.nightK * 0.7) + storm.k * 0.25;
+  const cs = 4 + WIND.speed * 6 + storm.k * 10;
+  const cx = Math.sin(WIND.angle) * cs * dt, cz = Math.cos(WIND.angle) * cs * dt;
+  for (const c of clouds) {
+    c.position.x += cx; c.position.z += cz;
+    if (Math.abs(c.position.x - camera.position.x) > 900) c.position.x = camera.position.x - Math.sign(c.position.x - camera.position.x) * 880;
+    if (Math.abs(c.position.z - camera.position.z) > 900) c.position.z = camera.position.z - Math.sign(c.position.z - camera.position.z) * 880;
+  }
+}
 
 /* ------------------------------------------------------------ the valley -- */
 const groundGroup = new THREE.Group();
@@ -3982,6 +4035,7 @@ Events.on('tick', (dt) => {
   animalDetectStep();
   lobsterStep(dt);
   bunkerStep(dt);
+  skyDressStep(dt);
   firebreakStep(dt);
   hikerStep(dt);
   arcStep(dt);
