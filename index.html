@@ -208,6 +208,45 @@ function vnoise(x, z) {
 
 /* --------------------------------------------------------------- config -- */
 const TEST = new URLSearchParams(location.search).get('test') === '1';
+
+/* ------------------------------------------------ the Range: ten regions -- */
+// One forest, ten regions, one year (design/MAPS.md). Each region is this same
+// engine under a different sky: terrain scale, tree density, palette, fire
+// temper, night length. Travel = build the relay, meet the coverage goal,
+// cross the pass.
+const REGIONS = [
+  { id: 'valley',   name: 'THE VALLEY',      tag: 'First Watch',   hillAmp: 1.0, treeMul: 1.0,  night: 1.0, fireAggr: 1.0, fireEvery: 105, coverGoal: 30,
+    pal: { grassA: 0x49572f, grassB: 0x6a7040, pineLo: 0x2e4a2b, pineMid: 0x3a5732, pineHi: 0x44633a, skyTop: 0x1c2148, skyMid: 0x53406e, skyHor: 0xff9455, fog: 0x6e4a63 } },
+  { id: 'fork',     name: 'THE FORK',        tag: 'Crosswind',     hillAmp: 1.3, treeMul: 1.1,  night: 0.9, fireAggr: 1.1, fireEvery: 90,  coverGoal: 35,
+    pal: { grassA: 0x556032, grassB: 0x76793f, pineLo: 0x35552e, pineMid: 0x40592f, pineHi: 0x4a6338, skyTop: 0x2e5e9e, skyMid: 0x7fa3c4, skyHor: 0xcfe3ee, fog: 0x9db8c8 } },
+  { id: 'lake',     name: 'BLACKPINE LAKE',  tag: 'Dark Water',    hillAmp: 0.8, treeMul: 1.3,  night: 1.6, fireAggr: 1.0, fireEvery: 85,  coverGoal: 40,
+    pal: { grassA: 0x3e4a2e, grassB: 0x4a5636, pineLo: 0x27402a, pineMid: 0x30492d, pineHi: 0x3a5230, skyTop: 0x0d1230, skyMid: 0x2a2f55, skyHor: 0xd97b4a, fog: 0x2c3350 } },
+  { id: 'meadow',   name: 'THE LONG MEADOW', tag: 'The Herd',      hillAmp: 0.7, treeMul: 0.55, night: 0.9, fireAggr: 1.1, fireEvery: 80,  coverGoal: 40,
+    pal: { grassA: 0x7c7f42, grassB: 0x9a9050, pineLo: 0x3d5c34, pineMid: 0x446239, pineHi: 0x4a6a3e, skyTop: 0x3f74b8, skyMid: 0x8fb2d4, skyHor: 0xdfeaf2, fog: 0xb9cdd8 } },
+  { id: 'canyon',   name: 'REDWALL CANYON',  tag: 'Weather',       hillAmp: 1.6, treeMul: 0.7,  night: 1.0, fireAggr: 0.9, fireEvery: 95,  coverGoal: 30,
+    pal: { grassA: 0x6b5a44, grassB: 0x7a6d5e, pineLo: 0x2f4a30, pineMid: 0x365236, pineHi: 0x3d5a3c, skyTop: 0x3a4152, skyMid: 0x596273, skyHor: 0x8b93a1, fog: 0x707a88 } },
+  { id: 'pass',     name: 'THE PASS',        tag: 'Thin Winter',   hillAmp: 1.8, treeMul: 0.6,  night: 1.3, fireAggr: 0.7, fireEvery: 120, coverGoal: 35,
+    pal: { grassA: 0xdfe4ea, grassB: 0xc9d2dc, pineLo: 0x243c2a, pineMid: 0x29432f, pineHi: 0x2e4a34, skyTop: 0x9fb4c8, skyMid: 0xc3d2de, skyHor: 0xe3ecf2, fog: 0xcfd9e2 } },
+  { id: 'dryside',  name: 'THE DRY SIDE',    tag: 'Tinder',        hillAmp: 0.9, treeMul: 0.8,  night: 0.8, fireAggr: 1.6, fireEvery: 60,  coverGoal: 45,
+    pal: { grassA: 0x9c8a52, grassB: 0xb09a5e, pineLo: 0x5c6135, pineMid: 0x655e34, pineHi: 0x6e5c33, skyTop: 0x7d94ad, skyMid: 0xa39d8e, skyHor: 0xc2a875, fog: 0xb3a284 } },
+  { id: 'spine',    name: 'THE SPINE',       tag: 'Dry Lightning', hillAmp: 1.5, treeMul: 0.9,  night: 1.1, fireAggr: 1.3, fireEvery: 55,  coverGoal: 45,
+    pal: { grassA: 0x6a5f43, grassB: 0x7a6c4c, pineLo: 0x33502f, pineMid: 0x395633, pineHi: 0x3f5c38, skyTop: 0x2b2b4a, skyMid: 0x6b4a63, skyHor: 0xc86a3e, fog: 0x5c4f60 } },
+  { id: 'oldburn',  name: 'THE OLD BURN',    tag: 'The Ones Before', hillAmp: 1.1, treeMul: 0.45, night: 1.0, fireAggr: 1.2, fireEvery: 70, coverGoal: 35,
+    pal: { grassA: 0x565049, grassB: 0x6b655c, pineLo: 0x31492e, pineMid: 0x405733, pineHi: 0x4f6538, skyTop: 0x8fa3b3, skyMid: 0xb3bfc9, skyHor: 0xd8dfe4, fog: 0x9aa3ab } },
+  { id: 'crown',    name: 'THE CROWN',       tag: 'Fire Season',   hillAmp: 1.2, treeMul: 1.0,  night: 1.0, fireAggr: 1.5, fireEvery: 45,  coverGoal: 50,
+    pal: { grassA: 0x77713f, grassB: 0x8c7f46, pineLo: 0x3a532f, pineMid: 0x405a34, pineHi: 0x466038, skyTop: 0x74869b, skyMid: 0xa5947b, skyHor: 0xd8a35f, fog: 0xc09a6a } },
+];
+const REGION_KEY = 'litw.region' + (TEST ? '.test' : '');
+const RANGE_KEY = 'litw.range.v1' + (TEST ? '.test' : '');
+let REGION_IDX = 1;
+try {
+  const q = parseInt(new URLSearchParams(location.search).get('region'), 10);
+  const s = parseInt(localStorage.getItem(REGION_KEY), 10);
+  REGION_IDX = q || (TEST ? 1 : s) || 1;
+} catch (e) { /* storage may be unavailable; the Valley always loads */ }
+REGION_IDX = Math.max(1, Math.min(10, REGION_IDX));
+const REGION = REGIONS[REGION_IDX - 1];
+
 const WORLD = 600;                 // world is 600x600 m
 const GRID_EXTENT = 500;           // watched-valley grid (coverage/fog)
 const GRID_N = 40;                 // 40x40 cells, 12.5 m each
@@ -218,6 +257,7 @@ const PADS = [
   { id: 'ridge',    name: 'RIDGE PAD',    x: 150, z: -40, blurb: 'High vantage over both valleys — a long hike from camp.' },
   { id: 'meadow',   name: 'MEADOW PAD',   x: 35,  z: 75,  blurb: 'Open sky, all-day sun — but low ground sees little.' },
   { id: 'treeline', name: 'TREELINE PAD', x: -40, z: 0,   blurb: 'Two minutes from the cache — under the canopy.' },
+  { id: 'relay',    name: 'RELAY RIDGE',  x: 215, z: -185, blurb: 'Faces the pass. The mesh wants to grow past this valley.' },
 ];
 
 /* -------------------------------------------------------------- terrain -- */
@@ -256,13 +296,14 @@ function meadowDist(x, z) { // <1 inside the meadow ellipse
   return Math.sqrt(dx * dx + dz * dz);
 }
 function terrainH(x, z) {
+  const HA = REGION.hillAmp;   // each region carries the same bones at its own scale
   // east ridge (the good sightline)
-  let h = 58 * Math.exp(-((x - 190) * (x - 190)) / (2 * 85 * 85)) * (1 + 0.22 * Math.sin(z * 0.011));
+  let h = 58 * HA * Math.exp(-((x - 190) * (x - 190)) / (2 * 85 * 85)) * (1 + 0.22 * Math.sin(z * 0.011));
   // west rise beyond the river
-  h += 26 * Math.exp(-((x + 270) * (x + 270)) / (2 * 110 * 110));
+  h += 26 * HA * Math.exp(-((x + 270) * (x + 270)) / (2 * 110 * 110));
   // north + south rims close the valley
-  h += 22 * Math.exp(-((z + 290) * (z + 290)) / (2 * 105 * 105));
-  h += 13 * Math.exp(-((z - 310) * (z - 310)) / (2 * 120 * 120));
+  h += 22 * HA * Math.exp(-((z + 290) * (z + 290)) / (2 * 105 * 105));
+  h += 13 * HA * Math.exp(-((z - 310) * (z - 310)) / (2 * 120 * 120));
   // rolling ground
   h += 4.2 * vnoise(x * 0.012, z * 0.012) + 1.7 * vnoise(x * 0.05 + 7.3, z * 0.05 + 3.1);
   // rock spire west of the ridge pad — shades that pad from the evening sun
@@ -295,7 +336,7 @@ PAD_GRADE = PADS.map(p => ({ x: p.x, z: p.z, h: terrainH(p.x, p.z) }));
 
 // analytic tree-density field: drives BOTH tree placement and canopy line-of-sight
 function treeDensity(x, z) {
-  let d = 0.18 + 0.38 * vnoise(x * 0.01 + 13.7, z * 0.01 + 7.1);
+  let d = (0.18 + 0.38 * vnoise(x * 0.01 + 13.7, z * 0.01 + 7.1)) * REGION.treeMul;
   if (x < -60) d += 0.45;                        // west forest across the river
   if (z < -90) d += 0.38;                        // deep north woods
   if (z > 160 && x > 40) d += 0.28;              // south-east slope woods
@@ -310,9 +351,10 @@ function treeDensity(x, z) {
 }
 // height without the trail/meadow shaping recursion guard (same fn is fine, alias for clarity)
 function terrainHRaw(x, z) {
-  let h = 58 * Math.exp(-((x - 190) * (x - 190)) / (2 * 85 * 85));
-  h += 26 * Math.exp(-((x + 270) * (x + 270)) / (2 * 110 * 110));
-  h += 22 * Math.exp(-((z + 290) * (z + 290)) / (2 * 105 * 105));
+  const HA = REGION.hillAmp;
+  let h = 58 * HA * Math.exp(-((x - 190) * (x - 190)) / (2 * 85 * 85));
+  h += 26 * HA * Math.exp(-((x + 270) * (x + 270)) / (2 * 110 * 110));
+  h += 22 * HA * Math.exp(-((z + 290) * (z + 290)) / (2 * 105 * 105));
   return h;
 }
 function canopyH(x, z) {
@@ -340,7 +382,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x6e4a63, 0.0016);
+scene.fog = new THREE.FogExp2(REGION.pal.fog, 0.0016);
 
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.3, 2600);
 
@@ -363,9 +405,9 @@ const sky = new THREE.Mesh(
   new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
     uniforms: {
-      top: { value: new THREE.Color(0x1c2148) },
-      mid: { value: new THREE.Color(0x53406e) },
-      hor: { value: new THREE.Color(0xff9455) },
+      top: { value: new THREE.Color(REGION.pal.skyTop) },
+      mid: { value: new THREE.Color(REGION.pal.skyMid) },
+      hor: { value: new THREE.Color(REGION.pal.skyHor) },
       sunDir: { value: SUN_DIR.clone() },
       sunCol: { value: new THREE.Color(0xffdaa0) },
     },
@@ -402,7 +444,7 @@ scene.add(groundGroup);
   geo = geo.toNonIndexed();
   const p = geo.attributes.position;
   const colors = new Float32Array(p.count * 3);
-  const c = new THREE.Color(), grassA = new THREE.Color(0x49572f), grassB = new THREE.Color(0x6a7040),
+  const c = new THREE.Color(), grassA = new THREE.Color(REGION.pal.grassA), grassB = new THREE.Color(REGION.pal.grassB),
         meadowC = new THREE.Color(0x8a8148), dirtC = new THREE.Color(0x6d5539),
         rockC = new THREE.Color(0x6b6055), crestC = new THREE.Color(0x7e7468),
         lushC = new THREE.Color(0x3c5233), bedC = new THREE.Color(0x5c5140);
@@ -498,9 +540,9 @@ function colorGeo(geo, hex) {
 let trees = null, treePositions = [];
 (function buildTrees() {
   const trunk = colorGeo(new THREE.CylinderGeometry(0.22, 0.34, 2.6, 5), 0x5a4230).translate(0, 1.3, 0);
-  const c1 = colorGeo(new THREE.ConeGeometry(2.3, 4.4, 6), 0x2e4a2b).translate(0, 4.0, 0);
-  const c2 = colorGeo(new THREE.ConeGeometry(1.6, 3.4, 6), 0x3a5732).translate(0, 6.4, 0);
-  const c3 = colorGeo(new THREE.ConeGeometry(0.95, 2.4, 6), 0x44633a).translate(0, 8.4, 0);
+  const c1 = colorGeo(new THREE.ConeGeometry(2.3, 4.4, 6), REGION.pal.pineLo).translate(0, 4.0, 0);
+  const c2 = colorGeo(new THREE.ConeGeometry(1.6, 3.4, 6), REGION.pal.pineMid).translate(0, 6.4, 0);
+  const c3 = colorGeo(new THREE.ConeGeometry(0.95, 2.4, 6), REGION.pal.pineHi).translate(0, 8.4, 0);
   const tree = mergeGeoms([trunk, c1, c2, c3]);
   // placement: jittered grid gated by the density field
   const spots = [];
@@ -625,6 +667,10 @@ const SITES = [
   { id: 'drop2',  kind: 'Crashed supply drop',    x: -190, z: -40,  parts: ['base'],             light: { dBattery: 1 }, west: true },
   { id: 'shack2', kind: 'Collapsed fire lookout', x: -170, z: 80,   parts: ['scaffold'],         light: { dRotors: 1 }, west: true },
   { id: 'mast2',  kind: 'Downed relay mast',      x: -120, z: -160, parts: ['antenna', 'panel'], light: {}, west: true },
+  // the pass cluster: a third set, for the relay that opens the next region
+  { id: 'pdrop',  kind: 'Crashed supply drop',    x: 150,  z: 165,  parts: ['base'],             light: { dBattery: 1, dFrame: 1 }, west: true },
+  { id: 'pshack', kind: 'Old ranger station',     x: 90,   z: 205,  parts: ['scaffold'],         light: { dRotors: 1, dCamera: 1 }, west: true },
+  { id: 'pmast',  kind: 'Lightning-felled tower', x: 205,  z: 95,   parts: ['antenna', 'panel'], light: {}, west: true },
 ];
 const LOOSE = [];   // parts set down in the open — the forest holds them for you
 
@@ -901,6 +947,8 @@ if (IS_TOUCH) {
   HUD.promptKey.style.display = 'none';
   document.getElementById('btnJump').style.display = 'flex';
 }
+// the objective header carries the region: "3 · BLACKPINE LAKE"
+document.querySelector('#objective .k').textContent = REGION_IDX + ' · ' + REGION.name + ' — ' + REGION.tag.toUpperCase();
 
 const inventory = { map: 0, radio: 0, rations: 0, dFrame: 0, dRotors: 0, dBattery: 0, dCamera: 0 };
 function renderChips() {
@@ -931,6 +979,7 @@ const state = {
   nearPad: null,
   promptTarget: null,
   carrying: null,       // heavy component on your back: 'base'|'scaffold'|'antenna'|'panel'
+  leaving: false, leaveT: 0,   // crossing the pass: fade out, then the next region
   time: 0,
   // survival: 1 = full, 0 = empty. warned tracks one-shot low-need alerts.
   // bo > 0 = blacking out (timer); boMoved = the wake-at-base move happened.
@@ -979,6 +1028,10 @@ function nearestInteract() {
       return { type: 'wipe', label: 'Wipe the panel down', st };
     if (st && st.drone && st.wear > 0.5)
       return { type: 'service', label: 'Service the drone rotors', st };
+    // the pass: a live relay + the coverage goal open the next region
+    if (st && st.pad.id === 'relay' && st.drone && REGION_IDX < 10
+        && coveragePercent() >= REGION.coverGoal)
+      return { type: 'travel', label: 'Cross the pass — ' + REGIONS[REGION_IDX].name, pad };
   }
   // a neighbor by the fire — and at night, a place to sleep
   for (const rec of recruits) {
@@ -1056,6 +1109,7 @@ function tryInteract() {
     t.rec.lineIdx++;
   }
   else if (t.type === 'sleep') sleepUntilDawn();
+  else if (t.type === 'travel') travelNext();
   else if (t.type === 'drink') { state.survival.thirst = 1; toast('Cold creek water. Thirst slaked.', 'good'); saveForest(); }
   else if (t.type === 'eat') {
     if (inventory.rations > 0) {
@@ -1848,7 +1902,8 @@ function update(dt) {
   const introK = Math.max(0, 1 - state.time / 2.2);
   const bo = state.survival.bo;
   const boK = bo <= 0 ? 0 : bo < 0.6 ? bo / 0.6 : bo < 1.6 ? 1 : Math.max(0, (2.5 - bo) / 0.9);
-  fadeEl.style.opacity = String(Math.max(introK, boK));
+  const leaveK = state.leaving ? Math.min(1, (state.time - state.leaveT) / 1.2) : 0;
+  fadeEl.style.opacity = String(Math.max(introK, boK, leaveK));
   if (state.time > 8) HUD.hint.style.opacity = '0';
   Events.emit('tick', dt);
 }
@@ -1963,6 +2018,7 @@ function drawOverlay() {
 const G = {
   state, player, cam, camera, inventory, stations, PADS, CACHE, SPAWN, bushes,
   SITES, LOOSE, assemblies, COMP, DRONE_PARTS, canMount, mountComponent, completeStation, assembleDrone,
+  REGION, REGIONS, REGION_IDX, REGION_KEY, RANGE_KEY,
   terrainH, padMeters, coverageFor, coveragePercent, doSalvage,
   tryInteract, keys, trees, fogTarget, fogState, errors, Events,
   step(n) { for (let i = 0; i < (n || 1); i++) update(1 / 60); },
@@ -1993,7 +2049,8 @@ const store = (function () {
   try { localStorage.setItem('litw._t', '1'); localStorage.removeItem('litw._t'); return localStorage; }
   catch (e) { const m = {}; return { setItem: (k, v) => { m[k] = String(v); }, getItem: (k) => (k in m ? m[k] : null), removeItem: (k) => { delete m[k]; } }; }
 })();
-const SAVE_KEY = TEST ? 'litw.forest.test' : 'litw.forest.v1';
+const SAVE_KEY = TEST ? 'litw.forest.test'
+  : (REGION_IDX === 1 ? 'litw.forest.v1' : 'litw.forest.v1.r' + REGION_IDX);   // region 1 keeps the legacy key
 if (TEST) store.removeItem(SAVE_KEY);
 
 /* ------------------------------------------------- fire: the dry-fuel grid -- */
@@ -2045,9 +2102,9 @@ function igniteCell(k) {
   const [x, z] = treePositions[ti];
   fire.cells.set(k, {
     t: 0,
-    // L1 is generous: the FIRST tree smolders alone for over a minute
-    spreadAt: fresh ? 70 : 20 + fireRng() * 12,
-    out: fresh ? 84 : 36 + fireRng() * 10,
+    // the first tree smolders alone for a while — less while in drier country
+    spreadAt: (fresh ? 70 : 20 + fireRng() * 12) / REGION.fireAggr,
+    out: (fresh ? 84 : 36 + fireRng() * 10) / Math.sqrt(REGION.fireAggr),
     anchor: [x, terrainH(x, z), z],
     treeIdx: ti, k, reported: false, smokeAcc: 0,
   });
@@ -2417,7 +2474,7 @@ function firebreakStep(dt) {
 
 /* -------------------------------------------------------- day/night clock -- */
 const clock = {
-  t: 0, day: 1, nightK: 0, DAY: 420, NIGHT: 130, label: 'DUSK',
+  t: 0, day: 1, nightK: 0, DAY: 420, NIGHT: Math.round(130 * REGION.night), label: 'DUSK',
   set(sec) { this.t = sec; },
 };
 function clockStep(dt) {
@@ -2432,10 +2489,10 @@ const LN = {
   sunDay: new THREE.Color(0xffb070), sunNight: new THREE.Color(0x7f8fc8),
   hemiSkyDay: new THREE.Color(0x4a4f80), hemiSkyNight: new THREE.Color(0x1d2242),
   hemiGndDay: new THREE.Color(0x5a4030), hemiGndNight: new THREE.Color(0x14121e),
-  fogDay: new THREE.Color(0x6e4a63), fogNight: new THREE.Color(0x141628),
-  skyTopDay: new THREE.Color(0x1c2148), skyTopNight: new THREE.Color(0x05060f),
-  skyMidDay: new THREE.Color(0x53406e), skyMidNight: new THREE.Color(0x0c1024),
-  skyHorDay: new THREE.Color(0xff9455), skyHorNight: new THREE.Color(0x1b2138),
+  fogDay: new THREE.Color(REGION.pal.fog), fogNight: new THREE.Color(0x141628),
+  skyTopDay: new THREE.Color(REGION.pal.skyTop), skyTopNight: new THREE.Color(0x05060f),
+  skyMidDay: new THREE.Color(REGION.pal.skyMid), skyMidNight: new THREE.Color(0x0c1024),
+  skyHorDay: new THREE.Color(REGION.pal.skyHor), skyHorNight: new THREE.Color(0x1b2138),
   sunColDay: new THREE.Color(0xffdaa0), sunColNight: new THREE.Color(0x9fb2dd),
 };
 function applyNight() {
@@ -2613,6 +2670,28 @@ function runnerHaulAtDawn() {
     }
   }
 }
+/* ------------------------------------------------ the pass: region travel -- */
+function rangeLoad() {
+  try { return JSON.parse(localStorage.getItem(RANGE_KEY) || '{}'); } catch (e) { return {}; }
+}
+function travelNext() {
+  if (REGION_IDX >= 10) return;
+  try {
+    localStorage.setItem(REGION_KEY, String(REGION_IDX + 1));
+    const range = rangeLoad();
+    range.unlocked = Math.max(range.unlocked || 1, REGION_IDX + 1);
+    (range.completed = range.completed || {})['r' + REGION_IDX] = true;
+    range.roster = Array.from(new Set([].concat(range.roster || [], recruits.map(r => r.key))));
+    range.day = clock.day; range.score = score.n;
+    localStorage.setItem(RANGE_KEY, JSON.stringify(range));
+  } catch (e) { /* no storage — the pass still crosses, it just won't remember */ }
+  saveForest();
+  state.leaving = true; state.leaveT = state.time;
+  toast('You shoulder your pack. ' + REGIONS[REGION_IDX].name + ' is over the pass.', 'good');
+  Events.emit('travel', { to: REGION_IDX + 1 });
+  if (!TEST) setTimeout(() => location.reload(), 1500);
+}
+
 // sleep: the night passes in a breath — for you. The forest keeps its own time:
 // fires spread unwatched, panels sit dark, and dawn settles whoever was coming.
 function sleepUntilDawn() {
@@ -2791,7 +2870,7 @@ window.addEventListener('pointerdown', () => { if (arc.phase === 'card' && arc.c
 function startEndless() {
   arc.phase = 'endless';
   spawnCache2();
-  arc.endlessNextT = 90 + fireRng() * 120;
+  arc.endlessNextT = REGION.fireEvery * (0.85 + fireRng() * 1.15);
   setObjective('The watch holds. A supply cache across the river — parts for a second station.');
   saveForest();
 }
@@ -2830,7 +2909,7 @@ function arcStep(dt) {
   if (arc.phase === 'endless' && arc.auto) {
     arc.endlessNextT -= dt;
     if (arc.endlessNextT <= 0) {
-      if (fire.cells.size === 0) { randomIgnite(); arc.endlessNextT = 100 + fireRng() * 140; }
+      if (fire.cells.size === 0) { randomIgnite(); arc.endlessNextT = REGION.fireEvery * (0.95 + fireRng() * 1.35); }
       else arc.endlessNextT = 45;
     }
     if (!hiker.done && !hiker.active && clock.nightK > 0.65) {
@@ -3124,7 +3203,7 @@ function restoreForest() {
         // a live watch resumes where it left off — endless, fires and all
         arc.phase = 'endless';
         arc.cineDone = true;
-        arc.endlessNextT = 60 + fireRng() * 90;
+        arc.endlessNextT = REGION.fireEvery * (0.6 + fireRng() * 0.85);
         if (data.cache2) { cache2.spawned = true; cache2.salvaged = true; }
         else spawnCache2();
         hudK = 1;
@@ -3177,6 +3256,7 @@ Object.assign(G, {
   fire, WIND, igniteCell, igniteNear, cellIndexFor, cellHasFuel, cellAnchor, fuelTotal,
   firebreak, clock, detectRadius, arc, firstSmoke, showCard, dismissCard, forestHealth,
   hiker, spawnHiker, rescueHiker, cache2, spawnCache2, doSalvage2, recruits, settleRecruit,
+  rangeLoad, travelNext, sleepUntilDawn,
   saveForest, loadForest, SAVE_KEY, store, score, stationAt, restoreStation,
   flamePool, smokeParts, smokeLive, scorchMesh: scorch, sun, toast,
 });
@@ -3910,6 +3990,52 @@ async function runTests() {
       if (st.phase === 'grounded') { st.phase = 'launch'; st.phaseT = 0; }
     }
     return 'slept to day ' + G.clock.day + '; fire grew ' + b0 + ' → ' + b1 + ' cells unwatched';
+  });
+  await raf();
+
+  T('the Range: ten regions, coherent configs, relay on the map', () => {
+    assert(REGIONS.length === 10, 'not ten regions: ' + REGIONS.length);
+    for (const r of REGIONS) {
+      assert(r.id && r.name && r.tag && r.hillAmp > 0 && r.treeMul > 0 && r.coverGoal > 0
+        && r.fireAggr > 0 && r.fireEvery > 0 && r.night > 0, 'bad config: ' + r.id);
+      for (const k of ['grassA', 'grassB', 'pineLo', 'pineMid', 'pineHi', 'skyTop', 'skyMid', 'skyHor', 'fog'])
+        assert(typeof r.pal[k] === 'number', r.id + ' missing pal.' + k);
+    }
+    assert(REGION_IDX === 1 && REGION.id === 'valley', 'suite should run the Valley: ' + REGION.id);
+    assert(PADS.length === 4 && PADS[3].id === 'relay', 'relay pad missing');
+    assert(SITES.length === 9, 'pass sites missing: ' + SITES.length);
+    return '10 regions · relay pad · 9 component sites · valley loaded';
+  });
+  await raf();
+
+  T('travel: a live relay + the coverage goal open the pass', () => {
+    const relay = PADS.find(p => p.id === 'relay');
+    for (const c of ['base', 'scaffold', 'antenna', 'panel']) G.mountComponent(relay, c);
+    const st = stationAt(relay);
+    assert(st && st.phase === 'needsDrone', 'relay tower not standing');
+    for (const p of DRONE_PARTS) inventory[p] = 1;
+    G.teleport(relay.x + 3, relay.z); G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'droneAsm', 'relay drone not offered');
+    tryInteract();
+    st.power = 1;
+    const goal0 = REGION.coverGoal;
+    REGION.coverGoal = 99;
+    G.step(5);
+    assert(!(state.promptTarget && state.promptTarget.type === 'travel'), 'travel offered below the goal');
+    REGION.coverGoal = 1;
+    G.step(5);
+    assert(state.promptTarget && state.promptTarget.type === 'travel', 'travel not offered: ' + (state.promptTarget && state.promptTarget.type));
+    tryInteract();   // TEST: writes the keys, skips the reload
+    REGION.coverGoal = goal0;
+    const stored = localStorage.getItem(REGION_KEY);
+    assert(stored === '2', 'region key not advanced: ' + stored);
+    const range = G.rangeLoad();
+    assert(range.unlocked === 2 && range.completed && range.completed.r1, 'range meta not written');
+    assert(range.roster && range.roster.indexOf('dale') >= 0, 'roster does not carry DALE');
+    localStorage.removeItem(REGION_KEY);
+    localStorage.removeItem(RANGE_KEY);
+    state.leaving = false; state.leaveT = 0;
+    return 'relay up; gated below goal; pass crossed → region 2, DALE on the roster';
   });
   await raf();
 
