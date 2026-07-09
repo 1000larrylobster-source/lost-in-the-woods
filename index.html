@@ -27,6 +27,14 @@
   #coverage .v { font-size:20px; }
   #windArrow { display:block; margin-left:auto; }
 
+  /* ---------- Vitals (survival meters) ---------- */
+  #vitals { position:absolute; top:calc(max(14px, env(safe-area-inset-top)) + 44px); left:18px;
+            display:none; flex-direction:column; gap:6px; width:154px; }
+  .vital { display:flex; align-items:center; gap:8px; }
+  .vital .k { width:46px; font-size:8.5px; letter-spacing:.14em; color:#c9a06a; }
+  .vital .bar { flex:1; height:6px; background:rgba(255,255,255,.12); border-radius:3px; overflow:hidden; }
+  .vital .fill { height:100%; width:100%; border-radius:3px; transition:width .3s linear, background .5s ease; }
+
   /* ---------- Phase 2 overlays ---------- */
   #softObj { position:absolute; left:50%; top:24%; transform:translateX(-50%); width:82vw; text-align:center;
              font-size:17px; letter-spacing:.12em; line-height:1.9; color:#e8cfa8; opacity:0; }
@@ -101,6 +109,10 @@
 <div id="app">
   <div id="hud">
     <div id="objective" class="hudText"><span class="k">OBJECTIVE</span><span id="objText">Dusk is falling. Follow the trail north.</span></div>
+    <div id="vitals" class="hudText">
+      <div class="vital"><span class="k">HUNGER</span><div class="bar"><div class="fill" id="vHunger"></div></div></div>
+      <div class="vital"><span class="k">THIRST</span><div class="bar"><div class="fill" id="vThirst"></div></div></div>
+    </div>
     <div id="watchCol">
       <div id="coverage" class="hudText" style="display:none"><span class="k">WATCH COVERAGE</span><span class="v" id="covText">0%</span></div>
       <div id="forestHud" class="hudText" style="display:none"><span class="k">FOREST</span><span class="v" id="forestVal">100%</span></div>
@@ -722,10 +734,13 @@ const HUD = {
   padAction: document.getElementById('padAction'),
   btnAct: document.getElementById('btnAct'),
   hint: document.getElementById('hint'),
+  vitals: document.getElementById('vitals'),
+  vHunger: document.getElementById('vHunger'),
+  vThirst: document.getElementById('vThirst'),
 };
 if (IS_TOUCH) { HUD.hint.textContent = 'LEFT THUMB MOVE · RIGHT THUMB LOOK'; HUD.promptKey.style.display = 'none'; }
 
-const inventory = { solar: 0, droneKit: 0, map: 0, radio: 0 };
+const inventory = { solar: 0, droneKit: 0, map: 0, radio: 0, rations: 0 };
 function renderChips() {
   HUD.chips.innerHTML = '';
   const add = (label, n) => {
@@ -739,6 +754,7 @@ function renderChips() {
   add('DRONE KIT', inventory.droneKit);
   add('MAP FRAGMENT', inventory.map);
   add('RADIO PARTS', inventory.radio);
+  add('RATIONS', inventory.rations);
 }
 function setObjective(t) { HUD.objText.textContent = t; }
 
@@ -749,7 +765,15 @@ const state = {
   nearPad: null,
   promptTarget: null,
   time: 0,
+  // survival: 1 = full, 0 = empty. warned tracks one-shot low-need alerts.
+  survival: { hunger: 1, thirst: 1, warned: {} },
 };
+// "base" = the ranger cache or any watch station you've built — where you eat
+function nearBase(px, pz) {
+  if (Math.hypot(px - CACHE.x, pz - CACHE.z) < 6) return true;
+  for (const s of stations) if (Math.hypot(px - s.pad.x, pz - s.pad.z) < 6) return true;
+  return false;
+}
 function nearestInteract() {
   const px = player.pos.x, pz = player.pos.z;
   // phase 2 targets (firebreak / hiker / supply drop) outrank the basics
@@ -763,6 +787,11 @@ function nearestInteract() {
     if (inventory.solar > 0 && inventory.droneKit > 0)
       return { type: 'build', label: 'Build watch station', pad: state.nearPad };
   }
+  // survival verbs — drink at the creek, eat a ration at base
+  if (Math.abs(px - riverX(pz)) < 6.5 && state.survival.thirst < 0.98)
+    return { type: 'drink', label: 'Drink from the creek' };
+  if (state.salvaged && inventory.rations > 0 && state.survival.hunger < 0.95 && nearBase(px, pz))
+    return { type: 'eat', label: 'Eat a ration (' + inventory.rations + ' left)' };
   return null;
 }
 function tryInteract() {
@@ -770,13 +799,23 @@ function tryInteract() {
   if (!t) return;
   if (t.type === 'cache') doSalvage();
   else if (t.type === 'build') buildStation(t.pad);
+  else if (t.type === 'drink') { state.survival.thirst = 1; toast('Cold creek water. Thirst slaked.', 'good'); }
+  else if (t.type === 'eat') {
+    if (inventory.rations > 0) {
+      inventory.rations--;
+      state.survival.hunger = Math.min(1, state.survival.hunger + 0.7);
+      renderChips();
+      toast('You eat a ration.', 'good');
+    }
+  }
   else p2Interact(t);   // firebreak is a HOLD, handled per-frame in phase 2
 }
 function doSalvage() {
   if (state.salvaged) return;
   state.salvaged = true;
-  inventory.solar = 1; inventory.droneKit = 1; inventory.map = 1;
+  inventory.solar = 1; inventory.droneKit = 1; inventory.map = 1; inventory.rations = 2;
   renderChips();
+  HUD.vitals.style.display = 'flex';   // your needs become visible once you have your bearings
   cacheGroup.getObjectByName('beacon').visible = false;
   // map fragment reveals the candidate pads
   for (const g of padMarkers) {
@@ -1186,7 +1225,9 @@ function updateCharacter(dt) {
     .addScaledVector(fwd, mv.f)
     .addScaledVector(right, mv.r);
   const wishLen = Math.min(1, wish.length());
-  const MAXSPD = 6.2, ACC = 22, DEC = 26;
+  // running on empty (no food or no water) saps your pace
+  const spent = (state.survival.hunger <= 0 || state.survival.thirst <= 0) ? 0.5 : 1;
+  const MAXSPD = 6.2 * spent, ACC = 22, DEC = 26;
   if (wishLen > 0.01) {
     wish.normalize();
     // smooth turn toward the move direction
@@ -1263,6 +1304,30 @@ function updateInteract() {
   // movement hint yields to real UI
   if (shownPad || showPill) HUD.hint.style.opacity = '0';
 }
+/* --------------------------------------------------- survival: needs -- */
+// thirst empties in ~4 min, hunger in ~7 — present but not frantic.
+const DRAIN_THIRST = 1 / 238, DRAIN_HUNGER = 1 / 417;
+function paintVital(el, v) {
+  if (!el) return;
+  el.style.width = (v * 100).toFixed(0) + '%';
+  el.style.background = v < 0.22
+    ? 'linear-gradient(90deg,#8a2f2f,#e0603a)'
+    : 'linear-gradient(90deg,#b96a32,#ffcf7a)';
+}
+function warnLow(key, v, msg) {
+  const w = state.survival.warned;
+  if (v < 0.22 && !w[key]) { w[key] = true; toast(msg, 'alert'); }
+  else if (v > 0.4 && w[key]) { w[key] = false; }
+}
+function updateSurvival(dt) {
+  const s = state.survival;
+  s.thirst = clamp(s.thirst - dt * DRAIN_THIRST, 0, 1);
+  s.hunger = clamp(s.hunger - dt * DRAIN_HUNGER, 0, 1);
+  warnLow('thirst', s.thirst, 'Your throat is dry. Find water.');
+  warnLow('hunger', s.hunger, 'Hunger is setting in. Eat something.');
+  paintVital(HUD.vThirst, s.thirst);
+  paintVital(HUD.vHunger, s.hunger);
+}
 function update(dt) {
   dt = Math.min(dt, 0.05);
   state.time += dt;
@@ -1270,6 +1335,7 @@ function update(dt) {
   updateCamera(dt);
   updatePads();
   updateInteract();
+  updateSurvival(dt);
   updateStations(dt);
   updateFog(dt);
   updatePreview(dt);
@@ -2456,6 +2522,60 @@ async function runTests() {
     G.step(5);
     assert(inventory.solar === 1 && inventory.droneKit === 1 && inventory.map === 1, 'salvage did not fill inventory');
     return 'solar+droneKit+map salvaged';
+  });
+  await raf();
+
+  T('survival: needs drain over time', () => {
+    const s = state.survival;
+    s.hunger = 1; s.thirst = 1; s.warned = {};
+    const h0 = s.hunger, t0 = s.thirst;
+    G.step(1800);   // 30s of game time
+    assert(s.thirst < t0 - 0.01, 'thirst did not drain: ' + t0.toFixed(3) + ' -> ' + s.thirst.toFixed(3));
+    assert(s.hunger < h0 - 0.005, 'hunger did not drain: ' + h0.toFixed(3) + ' -> ' + s.hunger.toFixed(3));
+    return 'after 30s: thirst ' + s.thirst.toFixed(2) + ', hunger ' + s.hunger.toFixed(2);
+  });
+  await raf();
+
+  T('survival: drinking the creek refills thirst', () => {
+    const z = 0;
+    G.teleport(riverX(z), z);
+    state.survival.thirst = 0.4;
+    G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'drink', 'no drink prompt at the creek');
+    tryInteract();
+    assert(state.survival.thirst > 0.95, 'thirst not refilled: ' + state.survival.thirst.toFixed(2));
+    return 'creek refilled thirst to full';
+  });
+  await raf();
+
+  T('survival: eating a ration fills hunger and spends it', () => {
+    G.teleport(CACHE.x, CACHE.z);
+    inventory.rations = 2; state.survival.hunger = 0.3;
+    G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'eat',
+      'no eat prompt at base: ' + (state.promptTarget && state.promptTarget.type));
+    tryInteract();
+    assert(state.survival.hunger > 0.9, 'hunger not restored: ' + state.survival.hunger.toFixed(2));
+    assert(inventory.rations === 1, 'ration not spent: ' + inventory.rations);
+    return 'ate a ration, ' + inventory.rations + ' left';
+  });
+  await raf();
+
+  T('survival: running on empty slows you', () => {
+    const runN = () => {
+      G.teleport(SPAWN.x, SPAWN.z);
+      const x0 = player.pos.x, z0 = player.pos.z;
+      keys['KeyW'] = true; G.step(120); keys['KeyW'] = false;
+      return Math.hypot(player.pos.x - x0, player.pos.z - z0);
+    };
+    state.survival.hunger = 1; state.survival.thirst = 1;
+    const dFull = runN();
+    state.survival.thirst = 0;
+    const dEmpty = runN();
+    state.survival.thirst = 1; state.survival.hunger = 1;   // restore for later tests
+    assert(dEmpty < dFull * 0.75,
+      'empty need did not slow: full ' + dFull.toFixed(1) + 'm vs empty ' + dEmpty.toFixed(1) + 'm');
+    return 'full ' + dFull.toFixed(1) + 'm vs empty ' + dEmpty.toFixed(1) + 'm over 2s';
   });
   await raf();
 
