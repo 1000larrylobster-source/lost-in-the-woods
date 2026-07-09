@@ -1016,6 +1016,7 @@ function renderChips() {
   add('BATTERY', inventory.dBattery);
   add('CAMERA', inventory.dCamera);
   add('NOIR CAMERA', inventory.dNoir);
+  add('KEYCARD', inventory.keycard || 0);
 }
 function setObjective(t) { HUD.objText.textContent = t; }
 
@@ -1116,6 +1117,19 @@ function nearestInteract() {
     if (Math.hypot(px - b.x, pz - b.z) < 3.4)
       return { type: 'forage', label: 'Pick mountain berries', bush: b };
   }
+  // eggs: quiet things that answer being noticed
+  if (sapling.spawned && Math.hypot(px - sapling.x, pz - sapling.z) < 3)
+    return { type: 'egg-sapling', label: 'Kneel by the sapling' };
+  if (bunker.built && !bunker.cardTaken && Math.hypot(px - bunker.cardX, pz - bunker.cardZ) < 3)
+    return { type: 'egg-card', label: 'Pick up the keycard' };
+  if (bunker.built && Math.hypot(px - bunker.x, pz - bunker.z) < 7) {
+    if (bunker.doorOpen) return { type: 'egg-doorclose', label: 'Close the door' };
+    if (inventory.keycard) return { type: 'egg-badge', label: 'Badge the reader' };
+  }
+  if (kvm.built && !((rangeLoad() || {}).kvm) && Math.hypot(px - kvm.x, pz - kvm.z) < 4)
+    return { type: 'egg-kvm', label: 'Flip the toggle marked KVM' };
+  if (cabin.built && Math.hypot(px - cabin.x, pz - cabin.z) < 6)
+    return { type: 'egg-cabin', label: 'Read the note on the desk' };
   // last resort while hauling: set the thing down
   if (state.carrying)
     return { type: 'drop', label: 'Set the ' + COMP[state.carrying].name + ' down' };
@@ -1178,6 +1192,35 @@ function tryInteract() {
   }
   else if (t.type === 'sleep') { sleepHush(); sleepUntilDawn(); }
   else if (t.type === 'travel') travelNext();
+  else if (t.type === 'egg-sapling') eggMark('sapling', 'It was one tree. It\'s one tree again.');
+  else if (t.type === 'egg-card') {
+    bunker.cardTaken = true; bunker.card.visible = false;
+    inventory.keycard = 1; renderChips();
+    toast('A keycard on a lanyard. Someone\'s Tuesday, dropped on a Thursday.', 'good');
+  }
+  else if (t.type === 'egg-badge') {
+    accessChirp();
+    bunker.doorOpen = true; bunker.openT = 0;
+    bunker.group.getObjectByName('readerLed').material.color.setHex(0x51ff7e);
+    const m = makePartMesh('base');
+    m.position.set(bunker.x - 1, terrainH(bunker.x - 1, bunker.z - 1) + 0.25, bunker.z - 1);
+    scene.add(m);
+    LOOSE.push({ part: 'base', x: bunker.x - 1, z: bunker.z - 1, mesh: m });
+    eggMark('badge', 'Somewhere, a guy who installs these for a living just smiled.');
+  }
+  else if (t.type === 'egg-doorclose') {
+    bunker.doorOpen = false; bunker.openT = 0; bunker.door.rotation.y = 0;
+    bunker.group.getObjectByName('readerLed').material.color.setHex(0xff3a2a);
+    tone(120, 0.08, 0.09, 'square');
+  }
+  else if (t.type === 'egg-kvm') {
+    tone(900, 0.04, 0.08, 'square'); tone(700, 0.04, 0.07, 'square', 0.08);
+    try { const r = rangeLoad(); r.kvm = true; localStorage.setItem(RANGE_KEY, JSON.stringify(r)); } catch (e) {}
+    eggMark('kvm', 'Out-of-band. You never have to climb that ridge for a frozen node again.');
+  }
+  else if (t.type === 'egg-cabin') {
+    eggMark('cabin', '"I built these woods one tree at a time. If you\'re reading this, you found the eleventh map. — the machine"');
+  }
   else if (t.type === 'drink') { state.survival.thirst = 1; gulpSound(); toast('Cold creek water. Thirst slaked.', 'good'); saveForest(); }
   else if (t.type === 'eat') {
     if (inventory.rations > 0) {
@@ -1567,7 +1610,10 @@ function assembleDrone(pad) {
   st.phase = 'boot'; st.phaseT = 0;
   HUD.coverage.style.display = 'block';
   setObjective('Station online — first watch. The drone is sweeping its sector.');
-  toast('DRONE ASSEMBLED — booting the node.', 'good');
+  if (!eggSeen('hello')) {
+    toast('hello, world', 'good');
+    setTimeout(() => eggMark('hello', 'Every watcher\'s first words.'), 900);
+  } else toast('DRONE ASSEMBLED — booting the node.', 'good');
   saveForest();
   return true;
 }
@@ -2423,6 +2469,7 @@ function applyBurnVisual(k) {
   addScorch(ax, az);
 }
 function burnOutCell(k) {
+  if (!state.firstScar) state.firstScar = { k, day: clock.day };   // the forest remembers its first wound
   fire.cells.delete(k);
   fire.burned.add(k);
   applyBurnVisual(k);
@@ -3025,6 +3072,195 @@ function runnerHaulAtDawn() {
     }
   }
 }
+/* ------------------------------------------------------- easter eggs -- */
+// Sixteen were designed (design/EASTER-EGGS.md); seven live in v1.0. None are
+// marked on any map. Payoffs are one line, once.
+const EGG_KEY = 'litw.eggs' + (TEST ? '.test' : '');
+function eggsLoad() { try { return JSON.parse(localStorage.getItem(EGG_KEY) || '{}'); } catch (e) { return {}; } }
+function eggSeen(name) { return !!eggsLoad()[name]; }
+function eggMark(name, payoff) {
+  if (eggSeen(name)) return false;
+  try { const e = eggsLoad(); e[name] = 1; localStorage.setItem(EGG_KEY, JSON.stringify(e)); } catch (err) {}
+  if (payoff) toast(payoff, 'good');
+  score.add(50);
+  return true;
+}
+
+// #2 One Tree, Again — a sapling grows in your first scar, twenty days on
+const sapling = { group: null, spawned: false };
+function saplingCheck() {
+  if (sapling.spawned || !state.firstScar) return;
+  if (clock.day < state.firstScar.day + 20) return;
+  const i = Math.floor(state.firstScar.k / GRID_N), j = state.firstScar.k % GRID_N;
+  const [sx, sz] = cellCenter(i, j);
+  const g = new THREE.Group();
+  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, flatShading: true });
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 0.7, 5), mat(0x5a4230));
+  stem.position.y = 0.35;
+  const crown = new THREE.Mesh(new THREE.ConeGeometry(0.45, 1.0, 6), mat(0x62b04a));   // the only green this bright
+  crown.position.y = 1.15;
+  g.add(stem, crown);
+  g.position.set(sx, terrainH(sx, sz), sz);
+  scene.add(g);
+  sapling.group = g; sapling.spawned = true; sapling.x = sx; sapling.z = sz;
+}
+
+// #3 The Lobster in the Stars — look up from dark high ground long enough
+const lobsterStars = (function () {
+  const pts = [];
+  // body, tail fan, two claws — unmistakable if you connect them
+  const L = [[0,0],[0.5,0.15],[1,0.2],[1.5,0.1],[2,0],[2.4,-0.35],[2.4,0.45],[-0.6,0.5],[-1.1,0.9],[-0.6,-0.4],[-1.1,-0.8]];
+  const geo = new THREE.BufferGeometry();
+  const arr = [];
+  for (const [a, b] of L) {
+    const az = 0.5 + a * 0.09, el = 0.72 + b * 0.09;
+    arr.push(Math.cos(el) * Math.sin(az) * 1320, Math.sin(el) * 1320, Math.cos(el) * Math.cos(az) * 1320);
+  }
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+  const m = new THREE.PointsMaterial({ color: 0xdfe8ff, size: 7, transparent: true, opacity: 0, sizeAttenuation: false, depthWrite: false });
+  const p = new THREE.Points(geo, m);
+  sky.add(p);
+  // the twelfth star: dim red, at the claw, pulsing like a status LED
+  const rg = new THREE.BufferGeometry();
+  const raz = 0.5 + 2.4 * 0.09, rel = 0.72 - 0.35 * 0.09;
+  rg.setAttribute('position', new THREE.Float32BufferAttribute([Math.cos(rel) * Math.sin(raz) * 1310, Math.sin(rel) * 1310, Math.cos(rel) * Math.cos(raz) * 1310], 3));
+  const rm = new THREE.PointsMaterial({ color: 0xff5a4a, size: 8, transparent: true, opacity: 0, sizeAttenuation: false, depthWrite: false });
+  const rp = new THREE.Points(rg, rm);
+  sky.add(rp);
+  return { m, rm, holdT: 0 };
+})();
+function lobsterStep(dt) {
+  let near = false;
+  for (const st of stations) {
+    if (Math.hypot(player.pos.x - st.pad.x, player.pos.z - st.pad.z) < 40) { near = true; break; }
+  }
+  const looking = clock.nightK > 0.7 && cam.pitch > 0.95 && player.pos.y > 25 && !near;
+  lobsterStars.holdT = looking ? lobsterStars.holdT + dt : 0;
+  const want = looking && lobsterStars.holdT > 5 ? 0.85 : 0;
+  lobsterStars.m.opacity += (want - lobsterStars.m.opacity) * Math.min(1, dt * 1.5);
+  lobsterStars.rm.opacity = lobsterStars.m.opacity * (0.55 + 0.45 * Math.sin(state.time * 4));
+  if (want > 0 && lobsterStars.m.opacity > 0.7) eggMark('lobster', 'Somebody up there is keeping watch too.');
+}
+
+// #8 Access Granted — the badge reader, played straight (region 4)
+const bunker = { built: false, doorOpen: false, openT: 0, alarmed: false, group: null, door: null };
+function buildBunker() {
+  if (bunker.built || !(REGION.id === 'meadow' || state.eggForce)) return;
+  bunker.built = true;
+  const mat = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r == null ? 0.85 : r, flatShading: true });
+  const g = new THREE.Group();
+  const box = new THREE.Mesh(new THREE.BoxGeometry(6, 3.4, 4.6), mat(0x8d8578));
+  box.position.y = 1.7;
+  const door = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.4, 0.14), mat(0x4a4f56, 0.5));
+  door.position.set(0.75, 1.2, 2.36);   // hinge at its left edge via geometry offset
+  door.geometry.translate(-0.75, 0, 0);
+  const reader = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.26, 0.08), mat(0x181c22, 0.4));
+  reader.position.set(1.35, 1.35, 2.34);
+  const led = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff3a2a }));
+  led.position.set(1.35, 1.47, 2.39); led.name = 'readerLed';
+  // inside: shelving and a wall of dead door controllers
+  const shelf = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.1, 1), mat(0x6a5a3a));
+  shelf.position.set(-0.8, 1.4, -1.4);
+  for (let i = 0; i < 5; i++) {
+    const pcb = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.34, 0.04), mat(0x1e5c34, 0.5));
+    pcb.position.set(-2.2 + i * 0.95, 2.2, -2.2);
+    g.add(pcb);
+  }
+  for (const mObj of [box, door, reader, shelf]) mObj.castShadow = true;
+  g.add(box, door, reader, led, shelf);
+  const bx = -170, bz = 130;
+  g.position.set(bx, terrainH(bx, bz), bz);
+  scene.add(g);
+  bunker.group = g; bunker.door = door; bunker.x = bx; bunker.z = bz;
+  // the keycard, dropped near the old ranger station
+  const card = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.02, 0.32),
+    new THREE.MeshStandardMaterial({ color: 0xe8e4dc, roughness: 0.4 }));
+  const kx = -42, kz = 88;
+  card.position.set(kx, terrainH(kx, kz) + 0.05, kz);
+  scene.add(card);
+  bunker.card = card; bunker.cardX = kx; bunker.cardZ = kz; bunker.cardTaken = false;
+}
+function accessChirp() { tone(880, 0.09, 0.08); tone(1320, 0.12, 0.08, 'sine', 0.11); tone(120, 0.06, 0.1, 'square', 0.25); }
+function bunkerStep(dt) {
+  if (!bunker.built || !bunker.doorOpen) return;
+  bunker.openT += dt;
+  bunker.door.rotation.y += (Math.PI * 0.55 - bunker.door.rotation.y) * Math.min(1, dt * 4);
+  if (bunker.openT > 30) {
+    // the door-held-open alarm — somebody's Tuesday
+    if ((state.time % 1.6) < 0.08) tone(1180, 0.07, 0.05, 'square');
+    if (!bunker.alarmed) { bunker.alarmed = true; eggMark('doorheld', 'Door held. Every alarm is somebody\'s Tuesday.'); }
+  }
+}
+
+// #9 Remote Hands — the KVM, canonized (region 9, by the relay)
+const kvm = { built: false, group: null };
+function buildKvm() {
+  if (kvm.built || !(REGION.id === 'oldburn' || state.eggForce)) return;
+  kvm.built = true;
+  const relay = PADS.find(p => p.id === 'relay');
+  const mat = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r == null ? 0.7 : r, flatShading: true });
+  const g = new THREE.Group();
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.34, 0.4), mat(0x33383f));
+  box.position.y = 0.5;
+  const toggle = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.16, 6), mat(0xd04a3a, 0.4));
+  toggle.position.set(0.14, 0.72, 0.1); toggle.rotation.z = 0.5;
+  const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 2.4, 5), mat(0x181c22, 0.5));
+  cable.position.set(-0.9, 0.2, 0); cable.rotation.z = Math.PI / 2.3;
+  g.add(box, toggle, cable);
+  const kx = relay.x - 9, kz = relay.z + 6;
+  g.position.set(kx, terrainH(kx, kz), kz);
+  scene.add(g);
+  kvm.group = g; kvm.x = kx; kvm.z = kz;
+}
+function kvmDawn() {
+  // remote hands: once a day, the weakest node gets rebooted without the hike
+  try { if (!rangeLoad().kvm) return; } catch (e) { return; }
+  let worst = null;
+  for (const st of stations) if (!worst || st.power < worst.power) worst = st;
+  if (!worst) return;
+  if (worst.power < 0.3 || worst.antennaDown || worst.phase === 'grounded') {
+    worst.power = Math.max(worst.power, 0.5);
+    worst.antennaDown = false;
+    if (worst.phase === 'grounded' && storm.k < 0.5) { worst.phase = 'launch'; worst.phaseT = 0; }
+    toast('Remote hands: ' + worst.pad.name.toUpperCase() + ' rebooted out-of-band. No hike.', 'good');
+  }
+}
+
+// #7 The Cabin — the eleventh map (region 6, off every trail)
+const cabin = { built: false, group: null };
+function buildCabin() {
+  if (cabin.built || !(REGION.id === 'pass' || state.eggForce)) return;
+  cabin.built = true;
+  const mat = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r == null ? 0.9 : r, flatShading: true });
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(5, 2.6, 4), mat(0x5a4632));
+  body.position.y = 1.3;
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(4.2, 1.8, 4), mat(0x4a3826));
+  roof.position.y = 3.4; roof.rotation.y = Math.PI / 4;
+  const win = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.7),
+    new THREE.MeshBasicMaterial({ color: 0xffd9a0 }));
+  win.position.set(1.2, 1.5, 2.01);
+  // the lone panel, wired to nothing you can see at first
+  const pan = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.08, 1.1),
+    new THREE.MeshStandardMaterial({ color: 0x1c2f5e, roughness: 0.25, metalness: 0.6 }));
+  pan.position.set(26, 1.1 - 0.2, 30); pan.rotation.z = 0.5;
+  // the red lobster on the shelf, two cones and claw-spheres
+  const lob = new THREE.Group();
+  const lb = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.3, 6), mat(0xd04a3a, 0.5));
+  lb.rotation.z = Math.PI / 2; lb.position.y = 0.05;
+  const c1 = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 5), mat(0xd04a3a, 0.5)); c1.position.set(0.18, 0.1, 0.07);
+  const c2 = c1.clone(); c2.position.z = -0.07;
+  lob.add(lb, c1, c2);
+  lob.position.set(-1.4, 1.9, -1.6);
+  for (const mObj of [body, roof]) mObj.castShadow = true;
+  g.add(body, roof, win, pan, lob);
+  const cx = -215, cz = 205;
+  g.position.set(cx, terrainH(cx, cz), cz);
+  scene.add(g);
+  cabin.group = g; cabin.x = cx; cabin.z = cz;
+}
+(function eggInit() { buildBunker(); buildKvm(); buildCabin(); })();
+
 /* ------------------------------------------------- story: the region cards -- */
 // One card in, one card out, per region — MAPS.md order, STORY.md voice.
 const STORY_CARDS = {
@@ -3095,7 +3331,13 @@ function travelNext() {
   if (TEST) return;
   // the closing card, then the fade, then the next region
   travelSting();
-  showStoryCard(REGION.name + ' — HELD', STORY_CARDS[REGION_IDX].close, () => {
+  const closeLines = STORY_CARDS[REGION_IDX].close.slice();
+  if (fire.burned.size === 0) {
+    closeLines.push('NOT ONE TREE — the region never burned.');
+    eggMark('notonetree');
+    score.add(500);
+  }
+  showStoryCard(REGION.name + ' — HELD', closeLines, () => {
     state.leaving = true; state.leaveT = state.time;
     setTimeout(() => location.reload(), 1400);
   });
@@ -3139,6 +3381,8 @@ Events.on('dawn', () => {
   } else {
     runnerHaulAtDawn();
   }
+  saplingCheck();
+  kvmDawn();
   // fire season is counted in dawns survived
   if ((REGION.id === 'crown' || siege.force) && arc.phase === 'endless' && !siege.done) {
     siege.dawns++;
@@ -3527,6 +3771,7 @@ function saveForest() {
   try {
     store.setItem(SAVE_KEY, JSON.stringify({
       v: 1,
+      firstScar: state.firstScar || null,
       burned: Array.from(fire.burned),
       stations: stations.map(s => s.pad.id),
       needsDrone: stations.filter(s => s.phase === 'needsDrone').map(s => s.pad.id),
@@ -3686,6 +3931,7 @@ function restoreForest() {
       for (const k of (data.recruits || [])) settleRecruit(k);
       if (data.rescued && !recruits.length) pendingRecruit = 'dale';   // pre-recruit saves owe him a camp
       state.introSeen = !!data.introSeen;
+      if (data.firstScar) state.firstScar = data.firstScar;
       const anyFlying = data.stations.length > nd.size;
       if (anyFlying) {
         // a live watch resumes where it left off — endless, fires and all
@@ -3734,6 +3980,8 @@ Events.on('tick', (dt) => {
   detectStep(dt);
   animalsStep(dt);
   animalDetectStep();
+  lobsterStep(dt);
+  bunkerStep(dt);
   firebreakStep(dt);
   hikerStep(dt);
   arcStep(dt);
@@ -3784,7 +4032,7 @@ Object.assign(G, {
   fire, WIND, igniteCell, igniteNear, cellIndexFor, cellHasFuel, cellAnchor, fuelTotal,
   firebreak, clock, detectRadius, arc, firstSmoke, showCard, dismissCard, forestHealth,
   hiker, spawnHiker, rescueHiker, cache2, spawnCache2, doSalvage2, recruits, settleRecruit,
-  rangeLoad, travelNext, sleepUntilDawn, herds, spawnHerd, animalPing, detectRadiusFor, storm, snow, lightning, stripStation, siege, LAKE,
+  rangeLoad, travelNext, sleepUntilDawn, herds, spawnHerd, animalPing, detectRadiusFor, storm, snow, lightning, stripStation, siege, LAKE, eggsLoad, eggSeen, eggMark, sapling, saplingCheck, bunker, kvm, cabin, lobsterStars, buildBunker, buildKvm, buildCabin,
   saveForest, loadForest, SAVE_KEY, store, score, stationAt, restoreStation,
   flamePool, smokeParts, smokeLive, scorchMesh: scorch, sun, toast,
 });
@@ -4778,6 +5026,53 @@ async function runTests() {
     G.fire.contained = false;
     for (const s of stations) { s.power = 1; if (s.phase === 'grounded') { s.phase = 'launch'; s.phaseT = 0; } }
     return 'wave of ' + landed + ' landed; dawn 3: THE RANGE — HELD (+1000)';
+  });
+  await raf();
+
+  T('eggs: quiet things answer being noticed', () => {
+    assert(eggSeen('hello'), 'hello-world never fired on the first boot');
+    // the sapling: pull the first scar twenty days into the past
+    assert(state.firstScar, 'no first scar recorded despite the fires');
+    state.firstScar.day = clock.day - 25;
+    saplingCheck();
+    assert(sapling.spawned, 'the sapling never grew');
+    G.teleport(sapling.x + 1, sapling.z + 1); G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'egg-sapling', 'no kneel prompt: ' + (state.promptTarget && state.promptTarget.type));
+    tryInteract();
+    assert(eggSeen('sapling'), 'sapling not marked');
+    // the badge reader, played straight
+    state.eggForce = true;
+    G.buildBunker();
+    assert(bunker.built, 'bunker not built under force');
+    G.teleport(bunker.cardX + 1, bunker.cardZ + 1); G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'egg-card', 'no keycard prompt: ' + (state.promptTarget && state.promptTarget.type));
+    tryInteract();
+    assert(inventory.keycard === 1, 'keycard not pocketed');
+    G.teleport(bunker.x + 3, bunker.z + 3); G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'egg-badge', 'no badge prompt: ' + (state.promptTarget && state.promptTarget.type));
+    const L0 = LOOSE.length;
+    tryInteract();
+    assert(eggSeen('badge') && bunker.doorOpen && LOOSE.length === L0 + 1, 'badge flow broke');
+    G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'egg-doorclose', 'no close-door prompt');
+    tryInteract();
+    assert(!bunker.doorOpen, 'door stuck open');
+    // the KVM
+    G.buildKvm();
+    G.teleport(kvm.x + 1, kvm.z + 1); G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'egg-kvm', 'no KVM prompt: ' + (state.promptTarget && state.promptTarget.type));
+    tryInteract();
+    assert(G.rangeLoad().kvm === true, 'KVM not latched into the range');
+    // the cabin
+    G.buildCabin();
+    G.teleport(cabin.x + 2, cabin.z + 2); G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'egg-cabin', 'no cabin note prompt');
+    tryInteract();
+    assert(eggSeen('cabin'), 'the eleventh map went unread');
+    localStorage.removeItem('litw.eggs.test');
+    localStorage.removeItem(RANGE_KEY);
+    state.eggForce = false;
+    return 'hello world, the sapling, the badge reader (+spare base), the KVM, the cabin — all answered';
   });
   await raf();
 
