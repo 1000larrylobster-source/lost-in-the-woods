@@ -1195,28 +1195,31 @@ const player = {
   const mat = (c) => toonMat({ color: c }, { rim: true, outline: { thickness: 0.0035, color: [0.08, 0.05, 0.04], alpha: 0.95 } });
   const shadowed = [];
   const mesh = (geo, m, x, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); shadowed.push(o); return o; };
-  // legs: pivot at the hip; capsule thigh-to-shin, boot toed toward -Z (front)
+  // MODEL FORWARD IS +Z: movement is dir=(sin h, cos h) with rotation.y=h,
+  // which maps model +Z onto the walk direction. Face/boots/straps live on
+  // +Z, pack on -Z — get this backwards and he moonwalks (Jon's video did).
+  // legs: pivot at the hip; capsule thigh-to-shin, boot toed toward +Z (front)
   const legGeo = new THREE.CapsuleGeometry(0.095, 0.42, 4, 8);
   const bootGeo = new THREE.BoxGeometry(0.17, 0.11, 0.28);
   const makeLeg = (side) => {
     const leg = new THREE.Group();
     leg.position.set(0.13 * side, 0.74, 0);
     leg.add(mesh(legGeo, mat(0x3a3f4e), 0, -0.32, 0));
-    leg.add(mesh(bootGeo, mat(0x4a3426), 0, -0.685, -0.045));
+    leg.add(mesh(bootGeo, mat(0x4a3426), 0, -0.685, 0.045));
     g.add(leg);
     return leg;
   };
   const legL = makeLeg(1), legR = makeLeg(-1);
   // torso: the orange shell jacket, chest strap, hood bump at the collar
   const torso = mesh(new THREE.CapsuleGeometry(0.29, 0.48, 4, 10), mat(0xe07038), 0, 1.06, 0);
-  const strap = mesh(new THREE.BoxGeometry(0.42, 0.07, 0.03), mat(0x4a3426), 0, 1.18, -0.27);
-  const hood = mesh(new THREE.SphereGeometry(0.13, 8, 6), mat(0xc4602f), 0, 1.42, 0.20);
+  const strap = mesh(new THREE.BoxGeometry(0.42, 0.07, 0.03), mat(0x4a3426), 0, 1.18, 0.27);
+  const hood = mesh(new THREE.SphereGeometry(0.13, 8, 6), mat(0xc4602f), 0, 1.42, -0.20);
   // head: bigger (chibi), with eyes — the face makes him a person
   const head = mesh(new THREE.SphereGeometry(0.235, 12, 10), mat(0xd8a880), 0, 1.67, 0);
   const eyeGeo = new THREE.SphereGeometry(0.028, 6, 6);
   const eyeMat = mat(0x2a2018);
-  head.add(mesh(eyeGeo, eyeMat, 0.085, 0.035, -0.20));
-  head.add(mesh(eyeGeo, eyeMat, -0.085, 0.035, -0.20));
+  head.add(mesh(eyeGeo, eyeMat, 0.085, 0.035, 0.20));
+  head.add(mesh(eyeGeo, eyeMat, -0.085, 0.035, 0.20));
   // beanie: brim + dome + pompom
   const beanie = new THREE.Group();
   beanie.position.y = 1.79;
@@ -1241,17 +1244,17 @@ const player = {
   const armL = makeArm(1), armR = makeArm(-1);
   // backpack: the pack, a bedroll lashed on top, shoulder straps over the jacket
   const pack = new THREE.Group();
-  pack.position.set(0, 1.14, 0.33);
+  pack.position.set(0, 1.14, -0.33);
   pack.add(mesh(new THREE.BoxGeometry(0.44, 0.52, 0.24), mat(0x6a5a3a), 0, 0, 0));
-  pack.add(mesh(new THREE.BoxGeometry(0.30, 0.16, 0.10), mat(0x5c4e32), 0, -0.14, 0.16));
+  pack.add(mesh(new THREE.BoxGeometry(0.30, 0.16, 0.10), mat(0x5c4e32), 0, -0.14, -0.16));
   const bedroll = mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.42, 8), mat(0x4a5a40), 0, 0.34, 0);
   bedroll.rotation.z = Math.PI / 2;
   pack.add(bedroll);
   g.add(pack);
   const strapGeo = new THREE.BoxGeometry(0.07, 0.34, 0.03);
-  const strapL = mesh(strapGeo, mat(0x4a3426), 0.15, 1.30, -0.24);
-  const strapR = mesh(strapGeo, mat(0x4a3426), -0.15, 1.30, -0.24);
-  strapL.rotation.x = strapR.rotation.x = 0.18;
+  const strapL = mesh(strapGeo, mat(0x4a3426), 0.15, 1.30, 0.24);
+  const strapR = mesh(strapGeo, mat(0x4a3426), -0.15, 1.30, 0.24);
+  strapL.rotation.x = strapR.rotation.x = -0.18;
   for (const m of [torso, strap, hood, head, strapL, strapR]) g.add(m);
   for (const m of shadowed) m.castShadow = true;
   player.parts = { legL, legR, armL, armR, torso, head, beanie, pack };
