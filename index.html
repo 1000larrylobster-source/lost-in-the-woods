@@ -630,10 +630,11 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => { keys[e.code] = false; });
 
 // camera orbit state
-const cam = { yaw: 0, pitch: 0.32, dist: 7.6, pos: new THREE.Vector3(), look: new THREE.Vector3() };
+const cam = { yaw: 0, pitch: 0.32, dist: 7.6, pos: new THREE.Vector3(), look: new THREE.Vector3(), userYawUntil: 0 };
 function applyDrag(dx, dy) {
   cam.yaw -= dx * 0.0052;
   cam.pitch = clamp(cam.pitch + dy * 0.004, 0.06, 1.15);
+  cam.userYawUntil = state.time + 1.6;   // hand steer wins; pause auto-follow briefly after
 }
 // mouse drag
 let dragging = false, lastMX = 0, lastMY = 0;
@@ -1226,6 +1227,15 @@ function updateCharacter(dt) {
   player.group.rotation.y = player.heading;
 }
 function updateCamera(dt) {
+  // Ocarina-of-Time third-person: when you're moving and not steering the camera
+  // yourself, it eases in behind your heading so "forward" is always up-screen.
+  const steering = dragging || input.camDrag || state.time < cam.userYawUntil;
+  if (!steering && player.speed > 1.2) {
+    let dy = (player.heading + Math.PI) - cam.yaw;
+    while (dy > Math.PI) dy -= Math.PI * 2;
+    while (dy < -Math.PI) dy += Math.PI * 2;
+    cam.yaw += dy * (1 - Math.pow(0.1, dt));
+  }
   const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
   const off = new THREE.Vector3(Math.sin(cam.yaw) * cp, sp, Math.cos(cam.yaw) * cp).multiplyScalar(cam.dist);
   const target = new THREE.Vector3(player.pos.x, player.pos.y + 1.9, player.pos.z);
@@ -2422,6 +2432,19 @@ async function runTests() {
     const d2 = camera.position.distanceTo(player.group.position);
     assert(d2 > 3 && d2 < 14, 'follow broke after orbit: ' + d2.toFixed(1));
     return 'dist ' + d.toFixed(1) + 'm, orbit ok';
+  });
+  await raf();
+
+  T('camera auto-trails heading (3rd-person follow)', () => {
+    G.teleport(SPAWN.x, SPAWN.z);
+    cam.yaw = player.heading + Math.PI + 2.2;   // knock it ~125deg off-axis
+    cam.userYawUntil = 0;                        // no hand-steer hold active
+    keys['KeyW'] = true; G.step(150); keys['KeyW'] = false;
+    let d = (player.heading + Math.PI) - cam.yaw;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    assert(Math.abs(d) < 0.35, 'camera never settled behind heading: off ' + d.toFixed(2) + ' rad');
+    return 'settled ' + Math.abs(d).toFixed(2) + ' rad behind heading';
   });
   await raf();
 
