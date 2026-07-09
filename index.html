@@ -119,6 +119,7 @@
       <div class="vital"><span class="k">HUNGER</span><div class="bar"><div class="fill" id="vHunger"></div></div></div>
       <div class="vital"><span class="k">THIRST</span><div class="bar"><div class="fill" id="vThirst"></div></div></div>
       <div class="vital"><span class="k">STAMINA</span><div class="bar"><div class="fill" id="vStamina"></div></div></div>
+      <div class="vital"><span class="k">WARMTH</span><div class="bar"><div class="fill" id="vWarmth"></div></div></div>
     </div>
     <div id="watchCol">
       <div id="coverage" class="hudText" style="display:none"><span class="k">WATCH COVERAGE</span><span class="v" id="covText">0%</span></div>
@@ -893,6 +894,7 @@ const HUD = {
   vHunger: document.getElementById('vHunger'),
   vThirst: document.getElementById('vThirst'),
   vStamina: document.getElementById('vStamina'),
+  vWarmth: document.getElementById('vWarmth'),
 };
 if (IS_TOUCH) {
   HUD.hint.textContent = 'LEFT THUMB MOVE · RIGHT THUMB LOOK';
@@ -933,7 +935,7 @@ const state = {
   // survival: 1 = full, 0 = empty. warned tracks one-shot low-need alerts.
   // bo > 0 = blacking out (timer); boMoved = the wake-at-base move happened.
   // winded = stamina hit zero; no sprint/jump until it recovers past 0.2.
-  survival: { health: 1, hunger: 1, thirst: 1, stamina: 1, winded: false, sprinting: false, warned: {}, bo: 0, boMoved: false },
+  survival: { health: 1, hunger: 1, thirst: 1, stamina: 1, warmth: 1, wet: 0, winded: false, sprinting: false, warned: {}, bo: 0, boMoved: false },
 };
 // "base" = the ranger cache or any watch station you've built — where you eat
 function nearBase(px, pz) {
@@ -978,11 +980,15 @@ function nearestInteract() {
     if (st && st.drone && st.wear > 0.5)
       return { type: 'service', label: 'Service the drone rotors', st };
   }
-  // a neighbor by the fire
+  // a neighbor by the fire — and at night, a place to sleep
   for (const rec of recruits) {
-    if (Math.hypot(px - rec.camp.x, pz - rec.camp.z) < 4.5)
+    if (Math.hypot(px - rec.camp.x, pz - rec.camp.z) < 4.5) {
+      if (clock.nightK > 0.3) return { type: 'sleep', label: 'Sleep until first light' };
       return { type: 'talk', label: 'Talk to ' + rec.name, rec };
+    }
   }
+  if (state.salvaged && clock.nightK > 0.3 && Math.hypot(px - CACHE.x, pz - CACHE.z) < 6)
+    return { type: 'sleep', label: 'Bed down at the cache until first light' };
   // survival verbs — drink at the creek, eat a ration at base, forage the valley
   if (Math.abs(px - riverX(pz)) < 6.5 && state.survival.thirst < 0.98)
     return { type: 'drink', label: 'Drink from the creek' };
@@ -1049,6 +1055,7 @@ function tryInteract() {
     toast(t.rec.name + ': ' + t.rec.lines[t.rec.lineIdx % t.rec.lines.length], 'good');
     t.rec.lineIdx++;
   }
+  else if (t.type === 'sleep') sleepUntilDawn();
   else if (t.type === 'drink') { state.survival.thirst = 1; toast('Cold creek water. Thirst slaked.', 'good'); saveForest(); }
   else if (t.type === 'eat') {
     if (inventory.rations > 0) {
@@ -1786,6 +1793,20 @@ function updateSurvival(dt) {
     }
     if (s.stamina <= 0 && !s.winded) { s.winded = true; toast('You are winded — catch your breath.', 'alert'); }
     else if (s.winded && s.stamina > 0.2) s.winded = false;
+    // warmth: night chills, the river soaks, fire and daylight give it back
+    s.wet = Math.abs(player.pos.x - riverX(player.pos.z)) < 4.5 ? 1 : Math.max(0, s.wet - dt / 60);
+    let nearFire = false;
+    for (const rec of recruits) {
+      if (Math.hypot(player.pos.x - rec.camp.x, player.pos.z - rec.camp.z) < 5.5) { nearFire = true; break; }
+    }
+    if (nearFire) s.warmth = clamp(s.warmth + dt / 12, 0, 1);
+    else {
+      const chill = (clock.nightK / 240) * (s.wet > 0.1 ? 3 : 1) + (s.wet > 0.1 ? 1 / 500 : 0);
+      const sunWarm = (1 - clock.nightK) / 180 * (s.wet > 0.1 ? 0.3 : 1);
+      s.warmth = clamp(s.warmth + dt * (sunWarm - chill), 0, 1);
+    }
+    if (s.warmth <= 0) s.health = clamp(s.health - dt / 100, 0, 1);
+    warnLow('warmth', s.warmth, 'You are shivering — find fire or daylight.');
     warnLow('thirst', s.thirst, 'Your throat is dry. Find water.');
     warnLow('hunger', s.hunger, 'Hunger is setting in. Eat something.');
     warnLow('health', s.health, 'You are fading — eat, drink, stay clear of the flames.');
@@ -1795,6 +1816,7 @@ function updateSurvival(dt) {
   paintVital(HUD.vThirst, s.thirst);
   paintVital(HUD.vHunger, s.hunger);
   paintVital(HUD.vStamina, s.stamina);
+  paintVital(HUD.vWarmth, s.warmth);
 }
 function update(dt) {
   dt = Math.min(dt, 0.05);
@@ -2591,6 +2613,28 @@ function runnerHaulAtDawn() {
     }
   }
 }
+// sleep: the night passes in a breath — for you. The forest keeps its own time:
+// fires spread unwatched, panels sit dark, and dawn settles whoever was coming.
+function sleepUntilDawn() {
+  const dayAtStart = clock.day;
+  let guard = 0;
+  const s = state.survival;
+  while (clock.day === dayAtStart && guard++ < 4000) {
+    const dt = 0.35;
+    clockStep(dt);
+    fireStep(dt);
+    for (const st of stations) tendStep(st, dt);
+    s.thirst = clamp(s.thirst - dt * DRAIN_THIRST * 0.5, 0, 1);
+    s.hunger = clamp(s.hunger - dt * DRAIN_HUNGER * 0.5, 0, 1);
+  }
+  s.warmth = 1; s.stamina = 1; s.wet = 0;
+  s.health = clamp(s.health + 0.15, 0, 1);
+  toast(fire.cells.size
+    ? 'DAY ' + clock.day + ' — you slept. Something out there did not. Smoke on the wind.'
+    : 'DAY ' + clock.day + ' — first light. The valley held.',
+    fire.cells.size ? 'alert' : 'good');
+  saveForest();
+}
 Events.on('rescue', () => {
   if (!recruits.some(r => r.key === 'dale')) pendingRecruit = 'dale';
 });
@@ -2938,7 +2982,7 @@ function saveForest() {
       needsDrone: stations.filter(s => s.phase === 'needsDrone').map(s => s.pad.id),
       stTend: stations.map(s => ({ id: s.pad.id, p: s.power, f: s.foul, w: s.wear })),
       inv: Object.assign({}, inventory),
-      surv: { h: state.survival.health, hu: state.survival.hunger, th: state.survival.thirst },
+      surv: { h: state.survival.health, hu: state.survival.hunger, th: state.survival.thirst, w: state.survival.warmth },
       carrying: state.carrying,
       mounts: Array.from(assemblies.values()).map(a => ({ padId: a.pad.id, mounted: Object.keys(a.mounted) })),
       sites: SITES.map(s => ({ id: s.id, taken: Object.keys(s.taken).filter(k => s.taken[k]), light: s.lightTaken })),
@@ -3014,6 +3058,7 @@ function restoreForest() {
       state.survival.health = clamp(+data.surv.h || 1, 0.05, 1);   // never restore into a blackout
       state.survival.hunger = clamp(+data.surv.hu || 0, 0, 1);
       state.survival.thirst = clamp(+data.surv.th || 0, 0, 1);
+      if ('w' in data.surv) state.survival.warmth = clamp(+data.surv.w || 1, 0.1, 1);
     }
     // component world-state: what was taken, carried, set down, half-built
     if (Array.isArray(data.sites)) {
@@ -3794,6 +3839,77 @@ async function runTests() {
     const d = loadForest();
     assert(d && Array.isArray(d.recruits) && d.recruits.indexOf('dale') >= 0, 'recruit not in save');
     return 'dale rides the save file';
+  });
+  await raf();
+
+  T('cold: night chills, freezing bites, daylight warms', () => {
+    const s = state.survival;
+    G.teleport(SPAWN.x, SPAWN.z);   // far from any fire
+    s.warmth = 0.5; s.wet = 0; s.hunger = 1; s.thirst = 1; s.health = 1; s.warned = {};
+    G.clock.set(G.clock.DAY + 30);
+    G.step(600);   // 10s of night
+    assert(s.warmth < 0.5, 'night did not chill: ' + s.warmth.toFixed(3));
+    s.warmth = 0;
+    G.step(300);   // 5s freezing
+    assert(s.health < 1, 'freezing did not bite: ' + s.health.toFixed(3));
+    G.clock.set(60); s.health = 1;
+    const w0 = s.warmth;
+    G.step(600);
+    assert(s.warmth > w0, 'daylight did not warm: ' + s.warmth.toFixed(3));
+    return 'chills at night, bites at zero, day warms you back';
+  });
+  await raf();
+
+  T('wet: the river soaks, the campfire dries and warms fast', () => {
+    const s = state.survival;
+    const z = 40;
+    G.teleport(riverX(z), z); G.step(5);
+    assert(s.wet > 0.9, 'river did not soak: ' + s.wet.toFixed(2));
+    G.clock.set(G.clock.DAY + 30);   // night, to measure chill rates
+    G.teleport(SPAWN.x, SPAWN.z);
+    s.wet = 1; s.warmth = 0.8; G.step(300);
+    const dWet = 0.8 - s.warmth;
+    s.wet = 0; s.warmth = 0.8; G.step(300);
+    const dDry = 0.8 - s.warmth;
+    assert(dWet > dDry * 1.5, 'wet does not chill faster: ' + dWet.toFixed(4) + ' vs ' + dDry.toFixed(4));
+    const rec = G.recruits[0];
+    G.teleport(rec.camp.x + 1, rec.camp.z + 1);
+    s.warmth = 0.3; s.wet = 0;
+    G.step(300);   // 5s at the coals
+    assert(s.warmth > 0.5, 'campfire not warming: ' + s.warmth.toFixed(2));
+    return 'soaked ×' + (dWet / Math.max(dDry, 1e-6)).toFixed(1) + ' chill; the fire gives it back';
+  });
+  await raf();
+
+  T('sleep: dawn comes, needs tick on, the fire did not wait', () => {
+    const rec = G.recruits[0];
+    G.clock.set(G.clock.DAY + 40);   // deep night
+    const k = G.igniteNear(-140, -140);
+    assert(k >= 0, 'no fuel for the overnight fire');
+    const b0 = G.fire.burned.size + G.fire.cells.size;
+    const day0 = G.clock.day;
+    G.teleport(rec.camp.x + 1, rec.camp.z + 1);
+    G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'sleep', 'no sleep prompt at night: ' + (state.promptTarget && state.promptTarget.type));
+    const th0 = state.survival.thirst;
+    tryInteract();
+    assert(G.clock.day === day0 + 1, 'dawn never came: day ' + G.clock.day);
+    assert(G.clock.nightK < 0.6, 'woke in the dark: nightK ' + G.clock.nightK.toFixed(2));
+    assert(state.survival.warmth === 1 && state.survival.stamina === 1, 'sleep did not restore');
+    assert(state.survival.thirst < th0, 'needs frozen during sleep');
+    const b1 = G.fire.burned.size + G.fire.cells.size;
+    assert(b1 >= b0, 'the overnight fire vanished: ' + b0 + ' → ' + b1);
+    // snuff cleanly: stop spread first, then let the cells gutter
+    G.fire.contained = true;
+    for (const [, cc] of G.fire.cells) cc.out = Math.min(cc.out, cc.t + 0.5);
+    let guard = 0;
+    while (G.fire.cells.size && guard++ < 900) G.step(1);
+    // sleep drained the towers all night — wake them for the tests ahead
+    for (const st of stations) {
+      st.power = 1; st.foul = 0;
+      if (st.phase === 'grounded') { st.phase = 'launch'; st.phaseT = 0; }
+    }
+    return 'slept to day ' + G.clock.day + '; fire grew ' + b0 + ' → ' + b1 + ' cells unwatched';
   });
   await raf();
 
