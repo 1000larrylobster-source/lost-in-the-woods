@@ -1,78 +1,50 @@
-# Lost in the Woods — v0.1 "First Watch"
+# Lost in the Woods — v1.0 "The Range"
 
-The first playable level. One valley at dusk, third-person, one self-contained HTML
-page — no install, runs in any browser. Desktop and touch.
+One self-contained HTML page — no install, any browser, desktop and touch.
 
-**Play the build:** open `index.html`, or unzip `dist/lost-in-the-woods-level1.zip`
-and open the `index.html` inside.
+**Play:** open `index.html`, or unzip `dist/lost-in-the-woods-level1.zip` and open the
+`index.html` inside. **Publish:** see `release/ITCH-PAGE.md` (copy, price, checklist).
 
-## What Level 1 is
+## What the game is
 
-You wake lost in the woods. There is no HUD and no tutorial — you follow the trail
-until you find a ranger's cache, and from there you build the forest's eyes.
+You wake lost in a valley at dusk. You build the forest's eyes: towers assembled from
+a BASE, SCAFFOLD, ANTENNA, and SOLAR PANEL you find where they fell and haul on your
+back, one at a time — then a drone built from frame, rotors, battery, and camera. The
+drones hunt the first curl of smoke. Fires you miss burn forest that stays burned —
+the save file IS the forest. The people you rescue come back at first light and stay.
 
-- **Salvage the cache** — a solar panel, a drone kit, a map fragment, and a radio
-  missing parts.
-- **Site the station** — three candidate pads (ridge, meadow, treeline), each with
-  honest meters for ELEVATION, SUN, and LINE-OF-SIGHT and a live coverage cone.
-  Reading terrain *is* the game: the ridge sees everything and is a long hike from
-  anywhere.
-- **First watch** — the station boots, the drone sweeps its sector, blind-spot mist
-  burns off cell by cell.
-- **First smoke** — a fire ignites about a minute in. Site well and the drone catches
-  it while it's one tree. Site badly and it starts in your blind spot.
-- **Hold the firebreak** — fires don't resolve themselves. Hike in and hold the cut
-  while it's small; too slow and the wind walks it tree to tree.
-- **The forest remembers** — burned ground scars, and the scars *are* the save file.
-  Reload the page and the forest you scarred (or saved) is the one you come back to.
-- **Night** — the drones go camera-blind in the dark; a headlamp starts blinking in
-  the pines and a thin voice calls under the wind. Walk him home.
-- **Endless watch** — the valley keeps testing you, with a second cache across the
-  river for station two.
-
-All audio — wind, birds, crickets, fire crackle, the detection ping — is generated in
-code. No external assets. The whole game is one HTML file.
+Ten regions, one Range, one year: living wind, night fires and NoIR eyes, elk you
+stalk downwind, storms that ground your drones and take your antennas, snow that
+buries panels, drought embers that jump your firebreaks, dry lightning walking in
+threes, a closed parts economy where you strip your own live towers — and a fire
+season finale of ignition waves, three dawns long.
 
 ## Controls
 
-- **Move:** WASD / arrow keys — or the on-screen stick on touch
-- **Sprint:** hold Shift — or jam the stick to its rim on touch
-- **Look:** drag / swipe to steer the camera (it follows you on its own while you move)
-- **Jump:** Space — or the ▲ button on touch
-- **Interact:** E — or the on-screen prompt button
-- **Test mode:** append `?test=1` to run the on-canvas verification harness
+- **Move** WASD/arrows · stick on touch — **Sprint** Shift · stick to the rim
+- **Jump** Space · ▲ on touch — **Interact** E · prompt button
+- **Camera** follows you; drag/swipe to steer
+- Region select for testing: `?region=N` (1–10) · Test suite: `?test=1`
 
-## Survive
+## Survive · Tend · Grow
 
-You have a body now: **health, hunger, thirst, stamina**. Drink at the creek; eat
-rations at the cache or a station you've built; **pick mountain berries** where they
-grow wild across the valley (they regrow — food out there is renewable, your rations
-are not). Sprinting and jumping spend your wind; run it out and you're winded until
-you catch your breath — and an empty stomach slows the catching. Starve and you fade;
-fall too far or stand in the flames and it costs you. Hit zero and you black out —
-the forest keeps burning while you're down, and you wake at the cache weaker. Your
-vitals ride the same save file as the scars.
+Five vitals (health, hunger, thirst, stamina, warmth). Drink at water, eat rations and
+berries, hunt from downwind, sleep at camps (fires spread unwatched while you dream).
+Wipe fouled panels, service worn rotors, scrape snow, re-rig storm-torn antennas —
+brownouts ground drones and blind the node. Meet the coverage goal, raise the relay,
+and cross the pass. Recruits settle by your towers and work: DALE hauls parts to your
+active build overnight.
 
 ## Verification
 
-`?test=1` runs 17 deterministic on-canvas tests — ignition, wind-driven spread, the
-firebreak hold, scorch persistence through a reload, the night detection penalty, the
-rescue, and the full arc to the endless watch. Current build: **17/17 PASS**, 57–60fps
-on desktop and touch.
+`?test=1` runs **57 deterministic on-canvas tests** — the full assembly journey, the
+maintenance loop, every survival vital, every region mechanic (wind, NoIR, herd,
+storm, snow, embers, lightning, strip, siege), story cards, travel gating, the eggs.
+All green in a real browser before every release.
 
 ## The real hardware
 
-The station you build in the game is a real edge-AI fire-detection node — Raspberry
-Pi 5 + AI HAT with a camera, a solar panel, and a LoRa whip (see `HARDWARE.md`). The
-drone tier is the same detection model, flown. The game and the field kit are one
-design; this is being built in public. See `devlog/` for the running log.
-
-## Publish (itch.io, HTML5)
-
-1. New project → Kind of project: **HTML**.
-2. Upload `dist/lost-in-the-woods-level1.zip` and check **"This file will be played
-   in the browser."**
-3. Embed options: set a fixed viewport (e.g. 1280×720), enable **fullscreen** and
-   **mobile friendly**.
-4. Paste this file's "What Level 1 is" section as the description; set the cover.
-5. Publish (or leave as draft/restricted for the first play test).
+The tower is a Raspberry Pi 5 + AI HAT fire-detection node (HARDWARE.md) with a
+camera, solar panel, and LoRa antenna. The NoIR camera in region 3 is a real part.
+The failure modes in the game are the node's real failure modes. One design, two
+harvests — the game and the field kit. Built in public: `devlog/`.

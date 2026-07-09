@@ -1,4 +1,66 @@
-# Lost in the Woods: Design Doc v1
+# Lost in the Woods: Design Doc v1 + v2
+
+---
+
+# v2 — THE SHIPPED GAME (locked with Jon, 2026-07-08)
+
+v1 below still holds — the fantasy, the loop, the real-hardware rule. v2 defines what
+**shipped** means, in Jon's words: *"game mechanics, sounds and maps done. story line
+done."* Everything short of that is a **release** (v0.1, v0.2, …) — cut lines on the
+road, published early-access, in public. Shipped is the destination:
+
+## Shipped =
+
+1. **10 maps.** The forest is one big Range; each map is a region of it. A map is
+   "done" when its mechanics, sound, and story beat are all in.
+2. **Towers are assembled from found components** — not built in one press. The four
+   parts, each a real thing from `HARDWARE.md`:
+   - **BASE** (foundation + battery box — the Pi lives here)
+   - **SCAFFOLD** (the mast)
+   - **ANTENNA** (the LoRa link)
+   - **SOLAR PANEL** (the power)
+   Player walks the world, finds each component where it fell — supply drops, old
+   ranger stations, abandoned camps — hauls them to a pad one at a time, and mounts
+   them step by step. Only a complete tower boots.
+3. **Drones are assembled the same way**: FRAME, ROTORS, BATTERY, CAMERA (the camera
+   *is* the detection model — the eyes). A tower without a drone watches nothing.
+4. **Coverage expands as towers rise.** Already true in one valley; at Range scale,
+   towers relay to each other (the LoRa mesh, literally) — building the relay toward
+   the next region is what opens the next map.
+5. **Rescued hikers can be RECRUITED.** They stay, settle, and support the network —
+   the forest gains a community of watchers. Draft roles (Jon to correct):
+   - **Watcher** — staffs a tower, keeps its drone flying while you're elsewhere
+   - **Forager** — keeps a food cache stocked near their camp
+   - **Runner** — hauls found components toward the pad you're building
+   - **Tech** — slows a tower's wear; the maintenance loop's human half
+6. **Story line done.** Draft arc (Jon to correct): you wake lost; you build the first
+   eyes; the people you save stay; region by region the Range comes under watch; the
+   final map is a fire season that tests the whole network and everyone it saved.
+   Title payoff: the lost don't leave the woods — they become its watchers.
+7. **Sound done.** All audio stays code-generated (no assets) — per-region ambience,
+   per-mechanic voices (assembly clanks, mesh pings, storm wind), story stingers.
+
+## What this reframes
+
+- **Salvage** becomes *component* salvage — distinct parts with weight, not abstract
+  kits. Ties into stamina (hauling) and the future carried-load inventory.
+- **Degradation/maintenance** (the keystone, next up) acts **per component**: panels
+  dust over, batteries sag, antennas take storm damage, rotors wear. Repair = tend or
+  replace the component. Assembly and maintenance are one system.
+- **Rescue** stops being only a score beat — every hiker saved is a potential recruit.
+
+## Status of v1's open questions
+
+1. Survival vs build-and-watch → **answered: full survival-sim** (locked 2026-07-08).
+2. Clock → real-time day/night with seasons per map (fire season = the finale).
+3. Manual response → you hike in; recruits can hold what you've built, not replace you.
+4. Fire model → shipped in L1; escalates by region.
+5. Engine → **Three.js single-file** proved out in L1 and stays for the browser
+   builds; Godot remains an open option if/when the Range outgrows one file.
+
+---
+
+# v1 (original) — Design Doc
 
 > The honest, in-public version. **v0 was wrong about the center of the game** — it made rescue the
 > point and drew it top-down. This v1 corrects it. Publishing the correction *is* the point of

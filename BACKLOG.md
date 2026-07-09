@@ -1,8 +1,11 @@
-# Backlog — beyond First Watch
+# Backlog — the road to SHIPPED
 
-Running design frame for what comes after Level 1. Captured live from playtests.
-The rule that saved this game twice still holds: **lock the core fantasy before
-building.** Every item below is measured against one thesis.
+**SHIPPED is defined in DESIGN.md v2** (locked with Jon 2026-07-08): 10 maps,
+component-assembled towers + drones, recruits living in the forest, story + sound
+done. Everything before that is a **release** — v0.1 (Friday's itch upload) onward.
+Captured live from playtests. The rule that saved this game twice still holds:
+**lock the core fantasy before building.** Every item below is measured against one
+thesis.
 
 ## Decision — survival depth (locked 2026-07-08)
 
@@ -72,12 +75,20 @@ makes surviving possible. Every survival system should touch the network somewhe
 4. ✅ Stamina + berries-on-the-map *(done: Shift/stick-rim sprint 1.55x ~7s, jump costs
    wind, winded state, idle regen halved when hungry; 16 regrowing berry bushes + cache-2
    rations — Jon's playtest call: food had to be renewable or blackout looped)*
-5. ⭐ Station/drone/shelter **degradation & maintenance** loop *(the keystone — the
-   network as survival; maps 1:1 to the real Pi node)* ← **NEXT**
-6. Warmth/cold + shelter + sleep (the night rhythm)
-7. Hunting for food (drones spot game — network feeds survival; berries shipped early in #4)
-8. Animals as drone false-positives (deer vs. hiker vs. smoke)
-9. Inventory as a real carried-load / weight system tying it all together
+5. ⭐ **Component assembly** — towers built from BASE + SCAFFOLD + ANTENNA + SOLAR
+   PANEL found in the world and hauled to the pad; drones from FRAME + ROTORS +
+   BATTERY + CAMERA *(v2 core mechanic; reshapes salvage)* ← **NEXT**
+6. ⭐ **Degradation & maintenance, per component** *(the keystone, now component-wise:
+   panels dust, batteries sag, antennas storm-break, rotors wear; repair/replace —
+   maps 1:1 to the real Pi node)*
+7. **Recruits** — rescued hikers settle and take roles (watcher / forager / runner /
+   tech); the forest community that supports the network
+8. Warmth/cold + shelter + sleep (the night rhythm)
+9. Hunting for food (drones spot game — network feeds survival; berries shipped early in #4)
+10. Animals as drone false-positives (deer vs. hiker vs. smoke)
+11. Inventory as a real carried-load / weight system (hauling components is the first use)
+12. **The Range** — relay meshes open region 2; then maps 3–10, each with its story
+    beat + sound pass (see DESIGN.md v2)
 
 Each item ships the way Level 1 did: one self-contained build, verified on-canvas,
 screenshotted and read before it counts as done, with a devlog.
@@ -88,3 +99,33 @@ screenshotted and read before it counts as done, with a devlog.
   shelters, wake at the nearest tended one instead.
 - Berry bushes don't persist picked-state in the save (they regrow in 90s anyway);
   revisit if regrowth ever slows.
+
+
+---
+
+# v1.0 SHIPPED STATE (2026-07-09, the marathon night)
+
+Everything below the line above is history. Current truth:
+
+**Built and verified (57/57 on-canvas tests, real Chrome):** component assembly ·
+per-component degradation/maintenance · recruits (Dale live) · warmth/wet/sleep ·
+the 10-region Range architecture with relay travel + per-region saves + range meta ·
+title screen with AIOS branding · story cards (10 open + 10 close) · full sound pass ·
+living wind · night fires + NoIR · elk herds/false positives/downwind hunting ·
+storms + antenna damage + re-rig · snow burial + scrape · drought embers · dry
+lightning · ghost towers + strip/cannibalize · Blackpine's lake · the Crown's siege
+finale (3 dawns → THE RANGE — HELD) · 7 easter eggs · starfield + clouds · v1.0.
+
+**Post-1.0 backlog (priced honestly, none block release):**
+- Settings panel: volume sliders, camera sensitivity/invert, reduced motion (SHOULD)
+- Pause menu + controls card (SHOULD)
+- Per-region bespoke terrain layouts (the Fork's braided creeks, the canyon's walls —
+  today regions share Valley bones under different configs; MAPS.md has the specs)
+- Region-specific site/pad placements + per-region recruit camps (Mae..Wren settle
+  visually; their roles work through the range meta today only as roster entries)
+- The remaining 9 easter eggs (satellite pass, radio Morse, storm numbers, operator's
+  tower, dreaming base, surveyor's meadow, deer-that-wasn't, the round, full watch)
+- In-game map screen (site/component markers) — the PAID bar calls it a SHOULD
+- Weight-based carried-load inventory (hauling already does the feel-work)
+- Balance pass from real player data (coverage goals, fire cadence per region)
+- Trailer (Higgsfield candidate — content lane, Jon's call on spend)
