@@ -104,6 +104,25 @@
 
   #vignette { position:absolute; inset:0; pointer-events:none; z-index:15;
               background: radial-gradient(ellipse at center, transparent 55%, rgba(10,5,20,.55) 100%); }
+
+  /* ---------- Title screen ---------- */
+  #title { position:absolute; inset:0; z-index:60; display:flex; flex-direction:column;
+           align-items:center; justify-content:center; text-align:center;
+           background:linear-gradient(180deg, rgba(10,6,20,.78) 0%, rgba(10,6,20,.45) 45%, rgba(10,6,20,.82) 100%);
+           font-family: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, sans-serif; color:#ffe2b8; }
+  #title h1 { font-size:min(46px, 9vw); letter-spacing:.34em; margin:0 0 6px; font-weight:800;
+              text-shadow:0 2px 26px rgba(255,180,100,.3); padding-left:.34em; }
+  #title .story { font-size:14.5px; letter-spacing:.08em; line-height:2.05; color:#d8b488; margin:18px 0 30px;
+                  max-width:82vw; }
+  #title .btnRow { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+  #title button { pointer-events:auto; background:rgba(255,217,168,.92); color:#241a10; border:none;
+                  border-radius:12px; padding:13px 26px; font-size:15px; font-weight:800; letter-spacing:.12em;
+                  font-family:inherit; cursor:pointer; box-shadow:0 4px 22px rgba(0,0,0,.45); }
+  #title button.ghost { background:rgba(36,26,16,.55); color:#ffd9a8; border:1px solid rgba(255,190,120,.5); }
+  #title .prog { margin-top:16px; font-size:11px; letter-spacing:.26em; color:#c9a06a; }
+  #title .brand { position:absolute; bottom:max(18px, env(safe-area-inset-bottom)); left:0; right:0;
+                  font-size:10px; letter-spacing:.3em; color:#8f7a66; }
+  #title .brand b { color:#c9a06a; }
   #fade { position:absolute; inset:0; background:#0a0618; z-index:50; pointer-events:none;
           transition:opacity 2.2s ease; }
   #hint { position:absolute; left:50%; bottom:4.5vh; transform:translateX(-50%); font-size:12px;
@@ -148,6 +167,17 @@
   <div id="warm"></div>
   <div id="vignette"></div>
   <div id="card"><h1>THE FOREST REMEMBERS</h1><div class="sub" id="cardSub"></div><div class="cont">PRESS ANY KEY · TAP</div></div>
+  <div id="title">
+    <h1>LOST IN THE WOODS</h1>
+    <div class="story">Dusk. No pack, no trail, no name for these woods yet.<br>
+      Everyone who lives out here got here the same way: lost.<br>Start walking.</div>
+    <div class="btnRow">
+      <button id="btnContinue">CONTINUE THE WATCH</button>
+      <button id="btnNew" class="ghost">NEW WATCH</button>
+    </div>
+    <div class="prog" id="titleProg"></div>
+    <div class="brand">AN <b>AIOS</b> GAME &nbsp;·&nbsp; BUILT IN PUBLIC &nbsp;·&nbsp; v0.9</div>
+  </div>
   <canvas id="overlay"></canvas>
   <div id="fade"></div>
 </div>
@@ -1945,6 +1975,7 @@ window.addEventListener('resize', () => {
 
 const fadeEl = document.getElementById('fade');
 fadeEl.style.transition = 'none';   // fade is JS-driven off game time
+let titleActive = !TEST;            // the title screen holds the sim; tests skip it
 let last = performance.now();
 let framesAfterTests = 0;
 let frameN = 0;
@@ -1956,7 +1987,8 @@ function frame(now) {
   if (frameN === 1) last = now;   // rAF clock may not match performance.now() (headless virtual time)
   const dt = clamp((now - last) / 1000, 0, 0.05);
   last = now;
-  if (!TEST) update(dt);          // test mode drives update() by hand for determinism
+  // the title holds the world still behind it; test mode drives update() by hand
+  if (!TEST && !titleActive) update(dt);
   renderer.render(scene, camera);
   drawOverlay();
 }
@@ -3250,6 +3282,41 @@ Events.on('tick', (dt) => {
 (function p2Init() {
   if (!TEST) restoreForest();
   if (!restored) P2E.objective.style.opacity = '0';   // WAKE: no HUD yet
+})();
+
+/* ------------------------------------------------------- title screen -- */
+(function titleInit() {
+  const titleEl = document.getElementById('title');
+  if (TEST) { titleEl.style.display = 'none'; titleActive = false; return; }
+  const btnC = document.getElementById('btnContinue');
+  const btnN = document.getElementById('btnNew');
+  let hasSave = false;
+  try {
+    hasSave = !!(localStorage.getItem(SAVE_KEY) || localStorage.getItem(RANGE_KEY)
+      || (localStorage.getItem(REGION_KEY) || '1') !== '1');
+  } catch (e) {}
+  if (!hasSave) { btnC.textContent = 'START WALKING'; btnN.style.display = 'none'; }
+  const range = rangeLoad();
+  if ((range.unlocked || 1) > 1 || REGION_IDX > 1) {
+    document.getElementById('titleProg').textContent =
+      'REGION ' + REGION_IDX + ' OF 10 — ' + REGION.name
+      + ((range.roster || []).length ? ' · ' + (range.roster || []).length + ' WATCHER' + ((range.roster || []).length > 1 ? 'S' : '') : '');
+  }
+  const start = () => { titleActive = false; titleEl.style.display = 'none'; };
+  btnC.addEventListener('click', start);
+  btnN.addEventListener('click', () => {
+    if (hasSave && !confirm('Start a NEW watch? The whole Range — every region, every scar, every neighbor — is forgotten.')) return;
+    try {
+      const doomed = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.indexOf('litw.') === 0 && k.indexOf('.test') < 0) doomed.push(k);
+      }
+      for (const k of doomed) localStorage.removeItem(k);
+    } catch (e) {}
+    location.reload();
+  });
+  window.addEventListener('keydown', (e) => { if (titleActive && e.code === 'Enter') start(); });
 })();
 
 Object.assign(G, {
