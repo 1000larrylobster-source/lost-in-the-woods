@@ -1127,25 +1127,27 @@ function tryInteract() {
     saveForest();
   }
   else if (t.type === 'mount') {
+    mountClank(state.carrying);
     mountComponent(t.pad, state.carrying);
     state.carrying = null;
     renderChips();
   }
-  else if (t.type === 'droneAsm') assembleDrone(t.pad);
-  else if (t.type === 'wipe') { t.st.foul = 0; toast('Panel wiped clean — full yield again.', 'good'); saveForest(); }
-  else if (t.type === 'service') { t.st.wear = 0; toast('Rotors trued, bearings oiled.', 'good'); saveForest(); }
+  else if (t.type === 'droneAsm') { if (assembleDrone(t.pad)) droneUpSound(); }
+  else if (t.type === 'wipe') { t.st.foul = 0; wipeSwish(); toast('Panel wiped clean — full yield again.', 'good'); saveForest(); }
+  else if (t.type === 'service') { t.st.wear = 0; serviceRatchet(); toast('Rotors trued, bearings oiled.', 'good'); saveForest(); }
   else if (t.type === 'talk') {
     toast(t.rec.name + ': ' + t.rec.lines[t.rec.lineIdx % t.rec.lines.length], 'good');
     t.rec.lineIdx++;
   }
-  else if (t.type === 'sleep') sleepUntilDawn();
+  else if (t.type === 'sleep') { sleepHush(); sleepUntilDawn(); }
   else if (t.type === 'travel') travelNext();
-  else if (t.type === 'drink') { state.survival.thirst = 1; toast('Cold creek water. Thirst slaked.', 'good'); saveForest(); }
+  else if (t.type === 'drink') { state.survival.thirst = 1; gulpSound(); toast('Cold creek water. Thirst slaked.', 'good'); saveForest(); }
   else if (t.type === 'eat') {
     if (inventory.rations > 0) {
       inventory.rations--;
       state.survival.hunger = Math.min(1, state.survival.hunger + 0.7);
       renderChips();
+      biteSound();
       toast('You eat a ration.', 'good');
       saveForest();
     }
@@ -1154,6 +1156,7 @@ function tryInteract() {
     t.bush.pickedUntil = state.time + 90;   // the bush regrows on its own clock
     t.bush.berries.visible = false;
     state.survival.hunger = Math.min(1, state.survival.hunger + 0.25);
+    berryPluck();
     toast('Sweet mountain berries.', 'good');
   }
   else p2Interact(t);   // firebreak is a HOLD, handled per-frame in phase 2
@@ -1894,7 +1897,7 @@ function updateSurvival(dt) {
     warnLow('thirst', s.thirst, 'Your throat is dry. Find water.');
     warnLow('hunger', s.hunger, 'Hunger is setting in. Eat something.');
     warnLow('health', s.health, 'You are fading — eat, drink, stay clear of the flames.');
-    if (s.health <= 0) { s.bo = 0.0001; s.boMoved = false; }
+    if (s.health <= 0) { s.bo = 0.0001; s.boMoved = false; blackoutDrone(); }
   }
   paintVital(HUD.vHealth, s.health);
   paintVital(HUD.vThirst, s.thirst);
@@ -2729,6 +2732,7 @@ const STORY_CARDS = {
 const storyCard = { active: false, t: 0, onDone: null };
 function showStoryCard(title, lines, onDone) {
   storyCard.active = true; storyCard.t = 0; storyCard.onDone = onDone || null;
+  cardSting();
   document.querySelector('#card h1').textContent = title;
   P2E.cardSub.innerHTML = lines.join('<br>');
   P2E.card.style.display = 'flex';
@@ -2770,6 +2774,7 @@ function travelNext() {
   Events.emit('travel', { to: REGION_IDX + 1 });
   if (TEST) return;
   // the closing card, then the fade, then the next region
+  travelSting();
   showStoryCard(REGION.name + ' — HELD', STORY_CARDS[REGION_IDX].close, () => {
     state.leaving = true; state.leaveT = state.time;
     setTimeout(() => location.reload(), 1400);
@@ -2806,6 +2811,7 @@ Events.on('dawn', () => {
     const rec = settleRecruit(pendingRecruit);
     pendingRecruit = null;
     if (rec) {
+      recruitMotif();
       toast('First light. The hiker came back with a pack and a tarp — he\'s staying. ' + rec.name + ' settles in by the tower.', 'good');
       Events.emit('recruit', { key: rec.key });
       saveForest();
@@ -3067,9 +3073,11 @@ function initAudio() {
     const buf = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = buf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-    // wind bed: noise through a low sigh
+    // wind bed: noise through a low sigh — brighter, harder wind in high country
     const wsrc = ctx.createBufferSource(); wsrc.buffer = buf; wsrc.loop = true;
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 260; lp.Q.value = 0.5;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
+    lp.frequency.value = Math.round(260 * (0.75 + 0.45 * REGION.hillAmp)); lp.Q.value = 0.5;
+    AU.windLp = lp;
     AU.windGain = ctx.createGain(); AU.windGain.gain.value = 0.045;
     wsrc.connect(lp); lp.connect(AU.windGain); AU.windGain.connect(AU.master);
     wsrc.start();
@@ -3100,6 +3108,27 @@ function tone(freq, dur, gain, type, delay, glide) {
 }
 function pingSound() { tone(1175, 0.09, 0.1); tone(1568, 0.16, 0.07, 'sine', 0.08); }
 function rescueChord() { tone(392, 1.0, 0.045); tone(523, 1.0, 0.04, 'sine', 0.05); tone(659, 1.3, 0.05, 'sine', 0.1); }
+/* mechanic voices — every verb gets a sound (design/SOUND.md, warm + woody) */
+const CLANK_HZ = { base: 98, scaffold: 147, antenna: 220, panel: 185 };
+function mountClank(comp) {
+  const f = CLANK_HZ[comp] || 130;
+  tone(f, 0.16, 0.12, 'square');                       // the thunk
+  tone(f * 6, 0.3, 0.045, 'triangle', 0.02, -f * 2);   // the steel ringing off
+  tone(f * 2.98, 0.22, 0.03, 'sine', 0.05);
+}
+function droneUpSound() { tone(140, 1.1, 0.07, 'sawtooth', 0, 460); tone(280, 0.9, 0.045, 'triangle', 0.25, 520); }
+function wipeSwish() { tone(1900, 0.16, 0.035, 'triangle', 0, -900); tone(1500, 0.14, 0.03, 'triangle', 0.18, -700); }
+function serviceRatchet() { for (let i = 0; i < 3; i++) tone(880, 0.03, 0.05, 'square', i * 0.09); tone(1320, 0.12, 0.03, 'sine', 0.3); }
+function berryPluck() { tone(660, 0.09, 0.05, 'triangle', 0, -80); }
+function biteSound() { tone(220, 0.08, 0.06, 'square', 0, -60); tone(180, 0.1, 0.05, 'square', 0.12, -50); }
+function gulpSound() { tone(300, 0.1, 0.05, 'sine', 0, -120); tone(240, 0.1, 0.045, 'sine', 0.14, -100); }
+function sleepHush() { tone(300, 1.6, 0.05, 'sine', 0, -180); tone(150, 2.0, 0.04, 'sine', 0.4, -60); }
+function travelSting() { const N = [392, 523, 659, 784]; N.forEach((f, i) => tone(f, 0.7, 0.055, 'triangle', i * 0.28)); }
+function cardSting() { tone(523, 0.5, 0.045, 'triangle'); tone(392, 0.8, 0.04, 'triangle', 0.22); }
+function blackoutDrone() { tone(110, 1.4, 0.07, 'sawtooth', 0, -50); tone(82, 1.8, 0.06, 'sine', 0.3, -20); }
+function recruitMotif() { tone(330, 0.4, 0.045, 'triangle'); tone(415, 0.4, 0.045, 'triangle', 0.18); tone(494, 0.7, 0.05, 'triangle', 0.36); }
+function cicadaBuzz() { for (let i = 0; i < 6; i++) tone(3800 + Math.random() * 300, 0.05, 0.011, 'sawtooth', i * 0.07); }
+function loonCall() { tone(740, 0.7, 0.035, 'sine', 0, -120); tone(880, 0.9, 0.03, 'sine', 0.8, -240); }
 function birdChirp() {
   const f = 2500 + Math.random() * 800;
   tone(f, 0.08, 0.03, 'sine', 0, 300);
@@ -3125,10 +3154,18 @@ function audioStep(dt) {
     g = 0.15 * clamp(1 - d / 46, 0, 1) * (0.65 + 0.7 * Math.random());   // pops
   }
   AU.crackleGain.gain.setTargetAtTime(g, t, 0.06);
+  const birdDen = clamp(REGION.treeMul, 0.2, 1.2) * (REGION.id === 'pass' ? 0.15 : 1);
   AU.birdT -= dt;
-  if (AU.birdT <= 0) { AU.birdT = 3.5 + Math.random() * 6; if (clock.nightK < 0.35) birdChirp(); }
+  if (AU.birdT <= 0) { AU.birdT = (3.5 + Math.random() * 6) / Math.max(0.15, birdDen); if (clock.nightK < 0.35) birdChirp(); }
   AU.cricketT -= dt;
   if (AU.cricketT <= 0) { AU.cricketT = 0.9 + Math.random() * 0.8; if (clock.nightK > 0.6) cricket(); }
+  // region character: cicadas on the dry side at noon, a loon off the black water at night
+  AU.regT = (AU.regT || 8) - dt;
+  if (AU.regT <= 0) {
+    AU.regT = 14 + Math.random() * 18;
+    if (REGION.id === 'dryside' && clock.nightK < 0.3) cicadaBuzz();
+    else if (REGION.id === 'lake' && clock.nightK > 0.5) loonCall();
+  }
   if (hiker.active && !hiker.rescued) {
     hiker.cryT -= dt;
     if (hiker.cryT <= 0) { hiker.cryT = 6 + Math.random() * 3; cryCall(); }
