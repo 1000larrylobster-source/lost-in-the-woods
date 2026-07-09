@@ -980,7 +980,7 @@ if (IS_TOUCH) {
 // the objective header carries the region: "3 · BLACKPINE LAKE"
 document.querySelector('#objective .k').textContent = REGION_IDX + ' · ' + REGION.name + ' — ' + REGION.tag.toUpperCase();
 
-const inventory = { map: 0, radio: 0, rations: 0, dFrame: 0, dRotors: 0, dBattery: 0, dCamera: 0 };
+const inventory = { map: 0, radio: 0, rations: 0, dFrame: 0, dRotors: 0, dBattery: 0, dCamera: 0, dNoir: 0 };
 function renderChips() {
   HUD.chips.innerHTML = '';
   const add = (label, n, hot) => {
@@ -999,6 +999,7 @@ function renderChips() {
   add('ROTORS', inventory.dRotors);
   add('BATTERY', inventory.dBattery);
   add('CAMERA', inventory.dCamera);
+  add('NOIR CAMERA', inventory.dNoir);
 }
 function setObjective(t) { HUD.objText.textContent = t; }
 
@@ -1051,8 +1052,9 @@ function nearestInteract() {
     const st = stationAt(pad);
     if (!st && state.carrying && canMount(pad, state.carrying))
       return { type: 'mount', label: 'Mount the ' + COMP[state.carrying].name, pad };
-    if (st && st.phase === 'needsDrone' && DRONE_PARTS.every(p => inventory[p] > 0))
-      return { type: 'droneAsm', label: 'Assemble the drone', pad };
+    if (st && st.phase === 'needsDrone' && inventory.dFrame > 0 && inventory.dRotors > 0
+        && inventory.dBattery > 0 && (inventory.dCamera > 0 || inventory.dNoir > 0))
+      return { type: 'droneAsm', label: 'Assemble the drone' + (inventory.dNoir > 0 ? ' (NoIR eyes)' : ''), pad };
     // tend the node: the maintenance loop, by hand
     if (st && st.foul > 0.25)
       return { type: 'wipe', label: 'Wipe the panel down', st };
@@ -1166,6 +1168,7 @@ function doSalvage() {
   state.salvaged = true;
   // the cache holds the light kit: the map, food, and the drone's brain + eyes
   inventory.map = 1; inventory.rations = 2; inventory.dFrame = 1; inventory.dCamera = 1;
+  if (REGION.id === 'lake') inventory.dNoir = 1;   // dark water: the ranger kept night eyes
   renderChips();
   HUD.vitals.style.display = 'flex';   // your needs become visible once you have your bearings
   cacheGroup.getObjectByName('beacon').visible = false;
@@ -1481,8 +1484,11 @@ function completeStation(pad) {
 function assembleDrone(pad) {
   const st = stationAt(pad);
   if (!st || st.phase !== 'needsDrone') return false;
-  if (!DRONE_PARTS.every(p => inventory[p] > 0)) return false;
-  for (const p of DRONE_PARTS) inventory[p]--;
+  const camOk = inventory.dCamera > 0 || inventory.dNoir > 0;
+  if (!(inventory.dFrame > 0 && inventory.dRotors > 0 && inventory.dBattery > 0 && camOk)) return false;
+  inventory.dFrame--; inventory.dRotors--; inventory.dBattery--;
+  if (inventory.dNoir > 0) { inventory.dNoir--; st.noir = true; }   // the night eyes go on
+  else inventory.dCamera--;
   renderChips();
   const y = terrainH(pad.x, pad.z);
   const dm = makeDroneMesh();
@@ -2097,7 +2103,33 @@ const fire = {
   outbreak: 0,        // cells this outbreak has claimed (burning + burned)
   SPEED: 1,           // test hook: multiplies fire timers
 };
-const WIND = { angle: fireRng() * Math.PI * 2, speed: 0.75, t: 0 };
+const WIND = {
+  angle: fireRng() * Math.PI * 2, speed: 0.75, t: 0,
+  // living wind (r2+): the direction wanders with intent; gusts arrive in pulses
+  target: 0, swingT: 30, gustT: 20, gusting: false, gustAge: 0, gustLen: 0, gustK: 0,
+};
+WIND.target = WIND.angle;
+function windStep(dt) {
+  WIND.t += dt;
+  // the swing: pick a new heading every minute or so, lean into it
+  WIND.swingT -= dt;
+  if (WIND.swingT <= 0) {
+    WIND.swingT = 40 + fireRng() * 50;
+    WIND.target = WIND.angle + (fireRng() - 0.5) * 2.4;
+  }
+  WIND.angle += (WIND.target - WIND.angle) * Math.min(1, dt * 0.05);
+  // the gusts: telegraphed by sound and the arrow, they hurry the fire
+  const gustMul = REGION_IDX >= 2 ? 1 : 0.45;   // the Valley teaches gently
+  WIND.gustT -= dt;
+  if (WIND.gustT <= 0 && !WIND.gusting) { WIND.gusting = true; WIND.gustAge = 0; WIND.gustLen = 6 + fireRng() * 8; }
+  if (WIND.gusting) {
+    WIND.gustAge += dt;
+    const a = WIND.gustAge;
+    WIND.gustK = a < 2.5 ? a / 2.5 : (a < WIND.gustLen - 3 ? 1 : Math.max(0, (WIND.gustLen - a) / 3));
+    if (a >= WIND.gustLen) { WIND.gusting = false; WIND.gustK = 0; WIND.gustT = (25 + fireRng() * 45) / gustMul; }
+  }
+  WIND.speed = 0.4 + 1.7 * WIND.gustK * gustMul;
+}
 
 // fuel map: each cell's anchor tree (the tree that torches) + trees close to it
 const cellAnchor = new Int32Array(GRID_N * GRID_N).fill(-1);
@@ -2164,12 +2196,12 @@ function igniteNear(x, z) {
 
 const NBR = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 function fireStep(dt) {
-  WIND.t += dt;
-  WIND.angle += Math.sin(WIND.t * 0.05 + 1.7) * 0.0009 + Math.sin(WIND.t * 0.013) * 0.0014;
+  windStep(dt);
   const wx = Math.sin(WIND.angle), wz = Math.cos(WIND.angle);
+  const hurry = 1 + WIND.gustK * 0.9;   // a gust hurries every burning cell
   const done = [];
   for (const [k, c] of fire.cells) {
-    c.t += dt * fire.SPEED;
+    c.t += dt * fire.SPEED * hurry;
     if (!fire.contained && c.t >= c.spreadAt && fire.outbreak < 14) {
       c.spreadAt += 18 + fireRng() * 12;
       // downwind-weighted pick among dry-fuel neighbours (i axis = x, j axis = z)
@@ -2439,17 +2471,17 @@ function makeSignalBeacon(color) {
 const fireBeacon = makeSignalBeacon(0xff5544);
 const hikerBeacon = makeSignalBeacon(0xffb84a);
 function detectRadius() { return lerp(95, 30, clock.nightK); }   // night = camera-blind
+function detectRadiusFor(st) { return st.noir ? lerp(80, 55, clock.nightK) : detectRadius(); }
 let detectT = 0;
 function detectStep(dt) {
   detectT += dt;
   if (detectT < 0.4) return;
   detectT = 0;
-  const dr = detectRadius();
   for (const [k, c] of fire.cells) {
     if (c.reported) continue;
     for (const st of stations) {
       if (!st.drone || !st.drone.visible || !st.online || !st.coverage.cells.has(k)) continue;
-      if (Math.hypot(st.drone.position.x - c.anchor[0], st.drone.position.z - c.anchor[2]) < dr) {
+      if (Math.hypot(st.drone.position.x - c.anchor[0], st.drone.position.z - c.anchor[2]) < detectRadiusFor(st)) {
         c.reported = true;
         toast('SMOKE CONFIRMED — hike in and cut it off', 'alert');
         pingSound();
@@ -2463,7 +2495,7 @@ function detectStep(dt) {
     const k = cellIndexFor(hiker.pos.x, hiker.pos.z);
     for (const st of stations) {
       if (!st.drone || !st.drone.visible || !st.online || !st.coverage.cells.has(k)) continue;
-      if (Math.hypot(st.drone.position.x - hiker.pos.x, st.drone.position.z - hiker.pos.z) < dr) {
+      if (Math.hypot(st.drone.position.x - hiker.pos.x, st.drone.position.z - hiker.pos.z) < detectRadiusFor(st)) {
         hiker.marked = true;
         hikerBeacon.visible = true;
         hikerBeacon.position.copy(hiker.pos);
@@ -2999,7 +3031,11 @@ function arcStep(dt) {
   if (arc.phase === 'endless' && arc.auto) {
     arc.endlessNextT -= dt;
     if (arc.endlessNextT <= 0) {
-      if (fire.cells.size === 0) { randomIgnite(); arc.endlessNextT = REGION.fireEvery * (0.95 + fireRng() * 1.35); }
+      if (fire.cells.size === 0) {
+        if (REGION.id === 'lake' && clock.nightK < 0.5 && fireRng() < 0.6) {
+          arc.endlessNextT = 20 + fireRng() * 30;   // dark water waits for dark
+        } else { randomIgnite(); arc.endlessNextT = REGION.fireEvery * (0.95 + fireRng() * 1.35); }
+      }
       else arc.endlessNextT = 45;
     }
     if (!hiker.done && !hiker.active && clock.nightK > 0.65) {
@@ -3043,7 +3079,8 @@ function hudStep(dt) {
   P2E.clockDay.textContent = 'DAY ' + clock.day;
   P2E.clockPhase.textContent = clock.label;
   const deg = (cam.yaw + Math.PI - WIND.angle) * 180 / Math.PI;
-  P2E.windArrow.style.transform = 'rotate(' + deg.toFixed(1) + 'deg)';
+  // the arrow leans into a gust — read the wind before it reads you
+  P2E.windArrow.style.transform = 'rotate(' + deg.toFixed(1) + 'deg) scale(' + (1 + WIND.gustK * 0.55).toFixed(2) + ')';
   // cinematic look: the camera cuts to the plume when the drone confirms
   if (cine.t < cine.dur) {
     cine.t += dt;
@@ -3180,6 +3217,7 @@ function saveForest() {
       burned: Array.from(fire.burned),
       stations: stations.map(s => s.pad.id),
       needsDrone: stations.filter(s => s.phase === 'needsDrone').map(s => s.pad.id),
+      noir: stations.filter(s => s.noir).map(s => s.pad.id),
       stTend: stations.map(s => ({ id: s.pad.id, p: s.power, f: s.foul, w: s.wear })),
       inv: Object.assign({}, inventory),
       surv: { h: state.survival.health, hu: state.survival.hunger, th: state.survival.thirst, w: state.survival.warmth },
@@ -3307,6 +3345,12 @@ function restoreForest() {
       for (const id of data.stations) {
         const pad = PADS.find(p => p.id === id);
         if (pad) restoreStation(pad, nd.has(id));
+      }
+      if (Array.isArray(data.noir)) {
+        for (const id of data.noir) {
+          const st = stations.find(s => s.pad.id === id);
+          if (st) st.noir = true;
+        }
       }
       if (Array.isArray(data.stTend)) {
         for (const td of data.stTend) {
@@ -4163,6 +4207,41 @@ async function runTests() {
     assert(PADS.length === 4 && PADS[3].id === 'relay', 'relay pad missing');
     assert(SITES.length === 9, 'pass sites missing: ' + SITES.length);
     return '10 regions · relay pad · 9 component sites · valley loaded';
+  });
+  await raf();
+
+  T('living wind: it swings, it gusts, it hurries the fire', () => {
+    const a0 = WIND.target;
+    WIND.swingT = 0;
+    G.step(2);
+    assert(WIND.target !== a0, 'the wind never picks a new heading');
+    WIND.gusting = false; WIND.gustT = 0; WIND.gustK = 0;
+    let guard = 0, peak = 0;
+    while (guard++ < 900 && !(WIND.gusting && WIND.gustK >= 0.99)) { G.step(1); peak = Math.max(peak, WIND.gustK); }
+    assert(WIND.gustK >= 0.99 || peak >= 0.99, 'gust never peaked: ' + peak.toFixed(2));
+    assert(WIND.speed > 1.0, 'gust did not raise wind speed: ' + WIND.speed.toFixed(2));
+    while (guard++ < 2400 && WIND.gusting) G.step(1);
+    assert(!WIND.gusting && WIND.gustK === 0, 'gust never ended');
+    return 'heading swings; gust peaked at ' + peak.toFixed(2) + ', speed ' + (0.4 + 1.7 * peak).toFixed(1) + ', then calm';
+  });
+  await raf();
+
+  T('NoIR eyes: the night camera keeps watch after dark', () => {
+    const meadow = PADS.find(p => p.id === 'meadow');
+    for (const c of ['scaffold', 'antenna', 'panel']) G.mountComponent(meadow, c);   // base landed in the runner test
+    const st = stationAt(meadow);
+    assert(st && st.phase === 'needsDrone', 'meadow tower not standing: ' + (st && st.phase));
+    inventory.dFrame = 1; inventory.dRotors = 1; inventory.dBattery = 1; inventory.dCamera = 0; inventory.dNoir = 1;
+    const ok = G.assembleDrone(meadow);
+    assert(ok && st.noir, 'NoIR eyes not fitted');
+    assert(inventory.dNoir === 0, 'NoIR not consumed');
+    G.clock.set(G.clock.DAY + 30); G.step(2);   // night
+    assert(detectRadiusFor(st) > detectRadius() + 15,
+      'NoIR no better at night: ' + detectRadiusFor(st).toFixed(0) + ' vs ' + detectRadius().toFixed(0));
+    G.clock.set(60); G.step(2);                 // day
+    assert(detectRadiusFor(st) < detectRadius(), 'NoIR should trade a little daylight reach');
+    st.power = 1;
+    return 'NoIR at the meadow: sees ~55m in the dark where standard eyes see 30';
   });
   await raf();
 
