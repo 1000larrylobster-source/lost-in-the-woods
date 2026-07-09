@@ -250,7 +250,7 @@ const REGIONS = [
   { id: 'fork',     name: 'THE FORK',        tag: 'Crosswind',     hillAmp: 1.3, treeMul: 1.1,  night: 0.9, fireAggr: 1.1, fireEvery: 90,  coverGoal: 35,
     pal: { grassA: 0x556032, grassB: 0x76793f, pineLo: 0x35552e, pineMid: 0x40592f, pineHi: 0x4a6338, skyTop: 0x2e5e9e, skyMid: 0x7fa3c4, skyHor: 0xcfe3ee, fog: 0x9db8c8 } },
   { id: 'lake',     name: 'BLACKPINE LAKE',  tag: 'Dark Water',    hillAmp: 0.8, treeMul: 1.3,  night: 1.6, fireAggr: 1.0, fireEvery: 85,  coverGoal: 40,
-    pal: { grassA: 0x3e4a2e, grassB: 0x4a5636, pineLo: 0x27402a, pineMid: 0x30492d, pineHi: 0x3a5230, skyTop: 0x0d1230, skyMid: 0x2a2f55, skyHor: 0xd97b4a, fog: 0x2c3350 } },
+    pal: { grassA: 0x3e4a2e, grassB: 0x4a5636, pineLo: 0x27402a, pineMid: 0x30492d, pineHi: 0x3a5230, skyTop: 0x0d1230, skyMid: 0x2a2f55, skyHor: 0xd97b4a, fog: 0x2c3350, water: 0x1d3350 } },
   { id: 'meadow',   name: 'THE LONG MEADOW', tag: 'The Herd',      hillAmp: 0.7, treeMul: 0.55, night: 0.9, fireAggr: 1.1, fireEvery: 80,  coverGoal: 40,
     pal: { grassA: 0x7c7f42, grassB: 0x9a9050, pineLo: 0x3d5c34, pineMid: 0x446239, pineHi: 0x4a6a3e, skyTop: 0x3f74b8, skyMid: 0x8fb2d4, skyHor: 0xdfeaf2, fog: 0xb9cdd8 } },
   { id: 'canyon',   name: 'REDWALL CANYON',  tag: 'Weather',       hillAmp: 1.6, treeMul: 0.7,  night: 1.0, fireAggr: 0.9, fireEvery: 95,  coverGoal: 30,
@@ -276,6 +276,8 @@ try {
 } catch (e) { /* storage may be unavailable; the Valley always loads */ }
 REGION_IDX = Math.max(1, Math.min(10, REGION_IDX));
 const REGION = REGIONS[REGION_IDX - 1];
+// Blackpine Lake: the black water itself (region 3 carves a bowl mid-valley)
+const LAKE = { x: -10, z: -80, r: 60 };
 
 const WORLD = 600;                 // world is 600x600 m
 const GRID_EXTENT = 500;           // watched-valley grid (coverage/fog)
@@ -351,6 +353,11 @@ function terrainH(x, z) {
   const md = meadowDist(x, z);
   const meadowH = 4.2 + 1.1 * vnoise(x * 0.03 + 20, z * 0.03 + 11);
   h = lerp(meadowH, h, smoothstep(0.72, 1.18, md));
+  // Blackpine: the lake bowl
+  if (REGION.id === 'lake') {
+    const dl = Math.hypot(x - LAKE.x, z - LAKE.z);
+    if (dl < 85) h = Math.min(h, lerp(-2.2, h, smoothstep(50, 85, dl)));
+  }
   // river carve
   const dr = Math.abs(x - riverX(z));
   h -= 4.0 * Math.exp(-(dr * dr) / (2 * 7.5 * 7.5));
@@ -377,6 +384,7 @@ function treeDensity(x, z) {
   if (meadowDist(x, z) < 0.85) d = 0;            // open meadow
   if (distToTrail(x, z) < 13) d = 0;             // trail corridor
   if (Math.abs(x - riverX(z)) < 13) d = 0;       // river banks stay open
+  if (REGION.id === 'lake' && Math.hypot(x - LAKE.x, z - LAKE.z) < 68) d = 0;   // open water
   return clamp(d, 0, 1);
 }
 // height without the trail/meadow shaping recursion guard (same fn is fine, alias for clarity)
@@ -701,6 +709,9 @@ const SITES = [
   { id: 'pdrop',  kind: 'Crashed supply drop',    x: 150,  z: 165,  parts: ['base'],             light: { dBattery: 1, dFrame: 1 }, west: true },
   { id: 'pshack', kind: 'Old ranger station',     x: 90,   z: 205,  parts: ['scaffold'],         light: { dRotors: 1, dCamera: 1 }, west: true },
   { id: 'pmast',  kind: 'Lightning-felled tower', x: 205,  z: 95,   parts: ['antenna', 'panel'], light: {}, west: true },
+  // the Old Burn: ghost towers of the crew that was here before the fire
+  { id: 'ghost1', kind: 'Lightning-felled tower', x: -60,  z: -200, parts: ['panel'],            light: { dCamera: 1 }, ghost: true },
+  { id: 'ghost2', kind: 'Collapsed fire lookout', x: 120,  z: 120,  parts: ['antenna'],          light: { dRotors: 1 }, ghost: true },
 ];
 const LOOSE = [];   // parts set down in the open — the forest holds them for you
 
@@ -770,6 +781,10 @@ function makePartMesh(part) {
 })();
 function revealSites(west) {
   for (const s of SITES) {
+    if (s.ghost) {
+      if (!west && REGION.id === 'oldburn') { s.spawned = true; s.group.visible = true; }
+      continue;
+    }
     if (!!s.west !== !!west) continue;
     s.spawned = true;
     s.group.visible = true;
@@ -788,6 +803,7 @@ const bushes = [];
   while (bushes.length < 16 && guard++ < 600) {
     const x = (rnd() * 2 - 1) * 250, z = (rnd() * 2 - 1) * 250;
     if (Math.abs(x - riverX(z)) < 12) continue;                    // not in the river
+    if (REGION.id === 'lake' && Math.hypot(x - LAKE.x, z - LAKE.z) < 70) continue;   // not in the water
     if (Math.hypot(x - CACHE.x, z - CACHE.z) < 14) continue;       // not on the doorstep
     let nearPad = false;
     for (const p of PADS) if (Math.hypot(x - p.x, z - p.z) < 10) { nearPad = true; break; }
@@ -1064,6 +1080,9 @@ function nearestInteract() {
       return { type: 'wipe', label: 'Wipe the panel down', st };
     if (st && st.drone && st.wear > 0.5)
       return { type: 'service', label: 'Service the drone rotors', st };
+    // scarcity country: parts are a closed economy — pull a live tower apart
+    if (st && st.phase !== 'needsDrone' && !state.carrying && (REGION_IDX >= 9 || state.stripForce))
+      return { type: 'strip', label: 'Pull the SOLAR PANEL (tower goes dark)', pad };
     // the pass: a live relay + the coverage goal open the next region
     if (st && st.pad.id === 'relay' && st.drone && REGION_IDX < 10
         && coveragePercent() >= REGION.coverGoal)
@@ -1079,8 +1098,10 @@ function nearestInteract() {
   if (state.salvaged && clock.nightK > 0.3 && Math.hypot(px - CACHE.x, pz - CACHE.z) < 6)
     return { type: 'sleep', label: 'Bed down at the cache until first light' };
   // survival verbs — drink at the creek, eat a ration at base, forage the valley
-  if (Math.abs(px - riverX(pz)) < 6.5 && state.survival.thirst < 0.98)
-    return { type: 'drink', label: 'Drink from the creek' };
+  if ((Math.abs(px - riverX(pz)) < 6.5
+      || (REGION.id === 'lake' && Math.abs(Math.hypot(px - LAKE.x, pz - LAKE.z) - LAKE.r) < 8))
+      && state.survival.thirst < 0.98)
+    return { type: 'drink', label: REGION.id === 'lake' ? 'Drink from the lake' : 'Drink from the creek' };
   if (state.salvaged && inventory.rations > 0 && state.survival.hunger < 0.95 && nearBase(px, pz))
     return { type: 'eat', label: 'Eat a ration (' + inventory.rations + ' left)' };
   // knife range on a stalked elk
@@ -1150,6 +1171,7 @@ function tryInteract() {
   else if (t.type === 'service') { t.st.wear = 0; serviceRatchet(); toast('Rotors trued, bearings oiled.', 'good'); saveForest(); }
   else if (t.type === 'reguy') { t.st.antennaDown = false; serviceRatchet(); toast('Antenna re-rigged and guyed. The node answers again.', 'good'); saveForest(); }
   else if (t.type === 'scrape') { t.st.snow = 0; wipeSwish(); toast('Panel scraped to black glass. The sun can work again.', 'good'); saveForest(); }
+  else if (t.type === 'strip') stripStation(t.pad);
   else if (t.type === 'talk') {
     toast(t.rec.name + ': ' + t.rec.lines[t.rec.lineIdx % t.rec.lines.length], 'good');
     t.rec.lineIdx++;
@@ -1504,6 +1526,28 @@ function completeStation(pad) {
   saveForest();
   return st;
 }
+// cannibalize: pull the panel off a live tower — the drone comes apart into the
+// pack, the tower drops back to a three-part assembly, and you carry the panel.
+// Every use of this verb is a coverage decision with a hole in it.
+function stripStation(pad) {
+  const st = stationAt(pad);
+  if (!st || state.carrying) return false;
+  if (st.drone) {
+    scene.remove(st.drone);
+    inventory.dFrame++; inventory.dRotors++; inventory.dBattery++;
+    if (st.noir) inventory.dNoir++; else inventory.dCamera++;
+  }
+  stations.splice(stations.indexOf(st), 1);
+  if (state.builtStation === st) state.builtStation = stations[0] || null;
+  st.mesh.getObjectByName('c_panel').visible = false;
+  assemblies.set(pad.id, { pad, mesh: st.mesh, mounted: { base: true, scaffold: true, antenna: true } });
+  state.carrying = 'panel';
+  renderChips();
+  mountClank('panel');
+  toast('Panel pulled. ' + pad.name.toUpperCase() + ' goes dark — its parts ride on.', 'alert');
+  saveForest();
+  return true;
+}
 function assembleDrone(pad) {
   const st = stationAt(pad);
   if (!st || st.phase !== 'needsDrone') return false;
@@ -1778,6 +1822,11 @@ function updateCharacter(dt) {
       else if (grade > 0.85) step *= 0.4;
       // shallow river slows you
       if (Math.abs(player.pos.x - riverX(player.pos.z)) < 7) step *= 0.6;
+      if (REGION.id === 'lake') {
+        const dlN = Math.hypot(nx - LAKE.x, nz - LAKE.z);
+        if (dlN < 50) step = 0;                    // the water is too deep
+        else if (dlN < 58) step *= 0.5;            // wading the shallows
+      }
     }
     player.pos.x = clamp(player.pos.x + dir.x * step, -292, 292);
     player.pos.z = clamp(player.pos.z + dir.z * step, -292, 292);
@@ -1918,7 +1967,8 @@ function updateSurvival(dt) {
     if (s.stamina <= 0 && !s.winded) { s.winded = true; toast('You are winded — catch your breath.', 'alert'); }
     else if (s.winded && s.stamina > 0.2) s.winded = false;
     // warmth: night chills, the river soaks, fire and daylight give it back
-    s.wet = Math.abs(player.pos.x - riverX(player.pos.z)) < 4.5 ? 1 : Math.max(0, s.wet - dt / 60);
+    const inLakeShallows = REGION.id === 'lake' && Math.hypot(player.pos.x - LAKE.x, player.pos.z - LAKE.z) < 58;
+    s.wet = (Math.abs(player.pos.x - riverX(player.pos.z)) < 4.5 || inLakeShallows) ? 1 : Math.max(0, s.wet - dt / 60);
     let nearFire = false;
     for (const rec of recruits) {
       if (Math.hypot(player.pos.x - rec.camp.x, player.pos.z - rec.camp.z) < 5.5) { nearFire = true; break; }
@@ -2167,6 +2217,8 @@ function windStep(dt) {
 // tone. While it runs: drones grounded, solar near-zero, antennas at risk — and
 // the rain halves the fire. Shield and sword.
 const storm = { active: false, k: 0, nextT: 120, ageT: 0, len: 0, force: false };
+/* the siege (region 10): fire season — waves, three dawns, the whole game at once */
+const siege = { force: false, dawns: 0, done: false };
 /* dry lightning (region 8, the Spine): strike cells drift; ignitions in threes */
 const lightning = { force: false, cellT: 90, active: false, ageT: 0, cx: 0, cz: 0, strikeT: 0, strikes: 0 };
 function thunderTone() { tone(70, 1.1, 0.09, 'sawtooth', 0, -20); tone(55, 1.5, 0.07, 'sine', 0.25, -10); }
@@ -3087,6 +3139,23 @@ Events.on('dawn', () => {
   } else {
     runnerHaulAtDawn();
   }
+  // fire season is counted in dawns survived
+  if ((REGION.id === 'crown' || siege.force) && arc.phase === 'endless' && !siege.done) {
+    siege.dawns++;
+    if (siege.dawns >= 3) {
+      siege.done = true;
+      score.add(1000);
+      try {
+        const r = rangeLoad();
+        (r.completed = r.completed || {}).r10 = true;
+        r.gameComplete = true;
+        localStorage.setItem(RANGE_KEY, JSON.stringify(r));
+      } catch (e) {}
+      showStoryCard('THE RANGE — HELD', STORY_CARDS[10].close);
+    } else {
+      toast('Siege dawn ' + siege.dawns + ' of 3. The season is not done with you.', 'alert');
+    }
+  }
 });
 
 /* ----------------------------------------------------- salvage cache two -- */
@@ -3272,6 +3341,11 @@ function arcStep(dt) {
           arc.endlessNextT = 30 + fireRng() * 30;   // nothing catches in the rain
         } else if (REGION.id === 'lake' && clock.nightK < 0.5 && fireRng() < 0.6) {
           arc.endlessNextT = 20 + fireRng() * 30;   // dark water waits for dark
+        } else if (REGION.id === 'crown' || siege.force) {
+          const nW = 3 + Math.round(fireRng() * 2);
+          for (let w = 0; w < nW; w++) randomIgnite();
+          toast('WAVE — ' + nW + ' starts across the region. Triage.', 'alert');
+          arc.endlessNextT = REGION.fireEvery * (1.4 + fireRng() * 1.2);
         } else { randomIgnite(); arc.endlessNextT = REGION.fireEvery * (0.95 + fireRng() * 1.35); }
       }
       else arc.endlessNextT = 45;
@@ -3710,7 +3784,7 @@ Object.assign(G, {
   fire, WIND, igniteCell, igniteNear, cellIndexFor, cellHasFuel, cellAnchor, fuelTotal,
   firebreak, clock, detectRadius, arc, firstSmoke, showCard, dismissCard, forestHealth,
   hiker, spawnHiker, rescueHiker, cache2, spawnCache2, doSalvage2, recruits, settleRecruit,
-  rangeLoad, travelNext, sleepUntilDawn, herds, spawnHerd, animalPing, detectRadiusFor, storm, snow, lightning,
+  rangeLoad, travelNext, sleepUntilDawn, herds, spawnHerd, animalPing, detectRadiusFor, storm, snow, lightning, stripStation, siege, LAKE,
   saveForest, loadForest, SAVE_KEY, store, score, stationAt, restoreStation,
   flamePool, smokeParts, smokeLive, scorchMesh: scorch, sun, toast,
 });
@@ -3781,7 +3855,7 @@ async function runTests() {
     G.step(5);
     assert(inventory.map === 1 && inventory.rations === 2, 'salvage did not fill inventory');
     assert(inventory.dFrame === 1 && inventory.dCamera === 1, 'drone brain+eyes not in the cache');
-    const east = SITES.filter(s => !s.west);
+    const east = SITES.filter(s => !s.west && !s.ghost);
     assert(east.length === 3 && east.every(s => s.spawned && s.group.visible), 'east component sites not revealed');
     return 'map+rations+frame+camera salvaged; 3 sites on the map';
   });
@@ -4457,7 +4531,7 @@ async function runTests() {
     }
     assert(REGION_IDX === 1 && REGION.id === 'valley', 'suite should run the Valley: ' + REGION.id);
     assert(PADS.length === 4 && PADS[3].id === 'relay', 'relay pad missing');
-    assert(SITES.length === 9, 'pass sites missing: ' + SITES.length);
+    assert(SITES.length === 11, 'site roster wrong: ' + SITES.length);
     return '10 regions · relay pad · 9 component sites · valley loaded';
   });
   await raf();
@@ -4636,6 +4710,74 @@ async function runTests() {
     G.fire.contained = false;
     for (const s of stations) { s.power = 1; if (s.phase === 'grounded') { s.phase = 'launch'; s.phaseT = 0; } }
     return 'cell formed, strikes walked, ground fire where the bolts hit';
+  });
+  await raf();
+
+  T('scarcity: strip a live tower — parts are a closed economy', () => {
+    state.stripForce = true;
+    const ridge = PADS[0];
+    const st0 = stationAt(ridge);
+    assert(st0 && st0.drone, 'ridge should be live before the strip');
+    const f0 = inventory.dFrame;
+    state.carrying = null;
+    G.teleport(ridge.x + 3, ridge.z); G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'strip', 'no strip prompt: ' + (state.promptTarget && state.promptTarget.type));
+    tryInteract();
+    assert(!stationAt(ridge), 'tower still standing after the pull');
+    assert(state.carrying === 'panel', 'panel not on your back');
+    assert(inventory.dFrame === f0 + 1, 'drone did not come apart into the pack');
+    const asm = assemblies.get(ridge.id);
+    assert(asm && asm.mounted.base && asm.mounted.scaffold && asm.mounted.antenna && !asm.mounted.panel,
+      'assembly wrong after strip');
+    G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'mount', 'panel not mountable back');
+    tryInteract();
+    const st1 = stationAt(ridge);
+    assert(st1 && st1.phase === 'needsDrone', 'tower did not complete on re-mount');
+    G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'droneAsm', 'drone not offered after rebuild');
+    tryInteract();
+    assert(st1.drone && st1.phase === 'boot', 'drone not rebuilt');
+    st1.power = 1;
+    state.stripForce = false;
+    let guard = 0;
+    while (st1.phase !== 'patrol' && guard++ < 600) G.step(1);
+    return 'pulled dark, panel hauled, remounted, drone rebuilt — the watch resumed';
+  });
+  await raf();
+
+  T('the siege: waves land in threes; three dawns hold the Range', () => {
+    siege.force = true; siege.dawns = 0; siege.done = false;
+    const arcPhase0 = G.arc.phase, auto0 = G.arc.auto;
+    G.arc.phase = 'endless';
+    G.arc.auto = true;               // the endless engine only turns when auto is on
+    G.arc.endlessNextT = 0.1;
+    G.fire.contained = false;
+    const before = G.fire.burned.size + G.fire.cells.size;
+    let guard = 0;
+    while ((G.fire.burned.size + G.fire.cells.size) - before < 3 && guard++ < 900) G.step(1);
+    const landed = (G.fire.burned.size + G.fire.cells.size) - before;
+    G.arc.auto = auto0;
+    assert(landed >= 3, 'no wave landed: +' + landed);
+    siege.dawns = 2;
+    G.clock.set(G.clock.DAY + G.clock.NIGHT - 0.5);
+    G.step(60);
+    assert(siege.done, 'third dawn did not close the season');
+    const r = G.rangeLoad();
+    assert(r.gameComplete && r.completed && r.completed.r10, 'range meta missing the win');
+    assert(storyCard.active, 'no closing card for the Range');
+    storyCard.t = 1; dismissStoryCard();
+    localStorage.removeItem(RANGE_KEY);
+    siege.force = false; siege.done = false; siege.dawns = 0;
+    G.arc.phase = arcPhase0;
+    G.arc.endlessNextT = 99999;
+    G.fire.contained = true;
+    for (const [, cc] of G.fire.cells) cc.out = Math.min(cc.out, cc.t + 0.5);
+    guard = 0;
+    while (G.fire.cells.size && guard++ < 1200) G.step(1);
+    G.fire.contained = false;
+    for (const s of stations) { s.power = 1; if (s.phase === 'grounded') { s.phase = 'launch'; s.phaseT = 0; } }
+    return 'wave of ' + landed + ' landed; dawn 3: THE RANGE — HELD (+1000)';
   });
   await raf();
 
