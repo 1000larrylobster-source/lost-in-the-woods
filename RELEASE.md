@@ -36,6 +36,7 @@ code. No external assets. The whole game is one HTML file.
 ## Controls
 
 - **Move:** WASD / arrow keys — or the on-screen stick on touch
+- **Sprint:** hold Shift — or jam the stick to its rim on touch
 - **Look:** drag / swipe to steer the camera (it follows you on its own while you move)
 - **Jump:** Space — or the ▲ button on touch
 - **Interact:** E — or the on-screen prompt button
@@ -43,11 +44,14 @@ code. No external assets. The whole game is one HTML file.
 
 ## Survive
 
-You have a body now: **health, hunger, thirst**. Drink at the creek, eat rations at
-the cache or a station you've built. Starve and you fade; fall too far or stand in
-the flames and it costs you. Hit zero and you black out — the forest keeps burning
-while you're down, and you wake at the cache weaker. Your vitals ride the same save
-file as the scars.
+You have a body now: **health, hunger, thirst, stamina**. Drink at the creek; eat
+rations at the cache or a station you've built; **pick mountain berries** where they
+grow wild across the valley (they regrow — food out there is renewable, your rations
+are not). Sprinting and jumping spend your wind; run it out and you're winded until
+you catch your breath — and an empty stomach slows the catching. Starve and you fade;
+fall too far or stand in the flames and it costs you. Hit zero and you black out —
+the forest keeps burning while you're down, and you wake at the cache weaker. Your
+vitals ride the same save file as the scars.
 
 ## Verification
 

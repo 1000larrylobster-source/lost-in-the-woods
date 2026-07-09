@@ -118,6 +118,7 @@
       <div class="vital"><span class="k">HEALTH</span><div class="bar"><div class="fill" id="vHealth"></div></div></div>
       <div class="vital"><span class="k">HUNGER</span><div class="bar"><div class="fill" id="vHunger"></div></div></div>
       <div class="vital"><span class="k">THIRST</span><div class="bar"><div class="fill" id="vThirst"></div></div></div>
+      <div class="vital"><span class="k">STAMINA</span><div class="bar"><div class="fill" id="vStamina"></div></div></div>
     </div>
     <div id="watchCol">
       <div id="coverage" class="hudText" style="display:none"><span class="k">WATCH COVERAGE</span><span class="v" id="covText">0%</span></div>
@@ -601,6 +602,48 @@ const padMarkers = [];
   }
 })();
 
+/* --------------------------------------------------- forage: berry bushes -- */
+// food lives in the valley, not just the cache: pick berries, they regrow.
+const bushes = [];
+(function plantBushes() {
+  const bushMat = new THREE.MeshStandardMaterial({ color: 0x2e5d34, roughness: 0.95, flatShading: true });
+  const berryMat = new THREE.MeshStandardMaterial({ color: 0xc03030, roughness: 0.6 });
+  let lcg = 20260708;   // fixed seed: the same valley grows the same bushes
+  const rnd = () => (lcg = (lcg * 1664525 + 1013904223) >>> 0) / 4294967296;
+  let guard = 0;
+  while (bushes.length < 16 && guard++ < 600) {
+    const x = (rnd() * 2 - 1) * 250, z = (rnd() * 2 - 1) * 250;
+    if (Math.abs(x - riverX(z)) < 12) continue;                    // not in the river
+    if (Math.hypot(x - CACHE.x, z - CACHE.z) < 14) continue;       // not on the doorstep
+    let nearPad = false;
+    for (const p of PADS) if (Math.hypot(x - p.x, z - p.z) < 10) { nearPad = true; break; }
+    if (nearPad) continue;                                          // pads keep their prompts
+    const h = terrainH(x, z);
+    const steep = Math.abs(terrainH(x + 2, z) - h) + Math.abs(terrainH(x, z + 2) - h);
+    if (steep > 2.2) continue;                                      // flat-ish ground only
+    const g = new THREE.Group();
+    for (let i = 0; i < 3; i++) {
+      const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.42 + rnd() * 0.2, 0), bushMat);
+      b.position.set((rnd() - 0.5) * 0.7, 0.3 + rnd() * 0.15, (rnd() - 0.5) * 0.7);
+      b.castShadow = true;
+      g.add(b);
+    }
+    const berries = new THREE.Group();
+    berries.name = 'berries';
+    for (let i = 0; i < 7; i++) {
+      const p = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 5), berryMat);
+      const a = rnd() * Math.PI * 2, r = 0.35 + rnd() * 0.25;
+      p.position.set(Math.cos(a) * r, 0.35 + rnd() * 0.35, Math.sin(a) * r);
+      berries.add(p);
+    }
+    g.add(berries);
+    g.position.set(x, h, z);
+    scene.add(g);
+    bushes.push({ x, z, group: g, berries, pickedUntil: -1 });
+  }
+})();
+function bushReady(b) { return state.time >= b.pickedUntil; }
+
 /* ------------------------------------------------------------ character -- */
 const player = {
   group: new THREE.Group(),
@@ -750,6 +793,7 @@ const HUD = {
   vHealth: document.getElementById('vHealth'),
   vHunger: document.getElementById('vHunger'),
   vThirst: document.getElementById('vThirst'),
+  vStamina: document.getElementById('vStamina'),
 };
 if (IS_TOUCH) {
   HUD.hint.textContent = 'LEFT THUMB MOVE · RIGHT THUMB LOOK';
@@ -784,7 +828,8 @@ const state = {
   time: 0,
   // survival: 1 = full, 0 = empty. warned tracks one-shot low-need alerts.
   // bo > 0 = blacking out (timer); boMoved = the wake-at-base move happened.
-  survival: { health: 1, hunger: 1, thirst: 1, warned: {}, bo: 0, boMoved: false },
+  // winded = stamina hit zero; no sprint/jump until it recovers past 0.2.
+  survival: { health: 1, hunger: 1, thirst: 1, stamina: 1, winded: false, sprinting: false, warned: {}, bo: 0, boMoved: false },
 };
 // "base" = the ranger cache or any watch station you've built — where you eat
 function nearBase(px, pz) {
@@ -805,11 +850,16 @@ function nearestInteract() {
     if (inventory.solar > 0 && inventory.droneKit > 0)
       return { type: 'build', label: 'Build watch station', pad: state.nearPad };
   }
-  // survival verbs — drink at the creek, eat a ration at base
+  // survival verbs — drink at the creek, eat a ration at base, forage the valley
   if (Math.abs(px - riverX(pz)) < 6.5 && state.survival.thirst < 0.98)
     return { type: 'drink', label: 'Drink from the creek' };
   if (state.salvaged && inventory.rations > 0 && state.survival.hunger < 0.95 && nearBase(px, pz))
     return { type: 'eat', label: 'Eat a ration (' + inventory.rations + ' left)' };
+  for (const b of bushes) {
+    if (!bushReady(b)) continue;
+    if (Math.hypot(px - b.x, pz - b.z) < 3.4)
+      return { type: 'forage', label: 'Pick mountain berries', bush: b };
+  }
   return null;
 }
 function tryInteract() {
@@ -826,6 +876,12 @@ function tryInteract() {
       toast('You eat a ration.', 'good');
       saveForest();
     }
+  }
+  else if (t.type === 'forage') {
+    t.bush.pickedUntil = state.time + 90;   // the bush regrows on its own clock
+    t.bush.berries.visible = false;
+    state.survival.hunger = Math.min(1, state.survival.hunger + 0.25);
+    toast('Sweet mountain berries.', 'good');
   }
   else p2Interact(t);   // firebreak is a HOLD, handled per-frame in phase 2
 }
@@ -1245,9 +1301,14 @@ function updateCharacter(dt) {
     .addScaledVector(fwd, mv.f)
     .addScaledVector(right, mv.r);
   const wishLen = Math.min(1, wish.length());
+  const s = state.survival;
+  // sprint: Shift, or the stick jammed to the rim — if you have the wind for it
+  const wantSprint = keys['ShiftLeft'] || keys['ShiftRight'] ||
+    (input.joy && Math.hypot(input.joy.dx, input.joy.dy) > 0.93);
+  s.sprinting = !!wantSprint && !s.winded && s.stamina > 0 && wishLen > 0.01 && s.bo <= 0 && !player.airborne;
   // running on empty (no food or no water) saps your pace
-  const spent = (state.survival.hunger <= 0 || state.survival.thirst <= 0) ? 0.5 : 1;
-  const MAXSPD = 6.2 * spent, ACC = 22, DEC = 26;
+  const spent = (s.hunger <= 0 || s.thirst <= 0) ? 0.5 : 1;
+  const MAXSPD = 6.2 * spent * (s.sprinting ? 1.55 : 1), ACC = 22, DEC = 26;
   if (wishLen > 0.01) {
     wish.normalize();
     // smooth turn toward the move direction
@@ -1295,8 +1356,10 @@ function updateCharacter(dt) {
       player.pos.y = ground;
     }
     const wantJump = (keys['Space'] || input.jumpHeld) && state.survival.bo <= 0;
-    if (wantJump && !player.jumpLatch && !player.airborne) {
+    if (wantJump && !player.jumpLatch && !player.airborne
+        && !state.survival.winded && state.survival.stamina >= 0.12) {
       player.airborne = true; player.vy = JUMP_V;
+      state.survival.stamina = Math.max(0, state.survival.stamina - 0.12);   // a hop takes wind
     }
     player.jumpLatch = wantJump;
   }
@@ -1399,6 +1462,16 @@ function updateSurvival(dt) {
     if (s.thirst <= 0) wear += PARCH_HP;
     if (wear > 0) s.health = clamp(s.health - dt * wear, 0, 1);
     else if (s.hunger > 0.5 && s.thirst > 0.5) s.health = clamp(s.health + dt * REGEN_HP, 0, 1);
+    // stamina: sprinting spends it (~7s of full wind); easing off earns it back —
+    // faster standing still, at half rate when you're hungry or parched
+    if (s.sprinting) {
+      s.stamina = clamp(s.stamina - dt / 7, 0, 1);
+    } else {
+      const rate = (player.speed < 0.4 ? 1 / 6 : 1 / 12) * ((s.hunger < 0.25 || s.thirst < 0.25) ? 0.5 : 1);
+      s.stamina = clamp(s.stamina + dt * rate, 0, 1);
+    }
+    if (s.stamina <= 0 && !s.winded) { s.winded = true; toast('You are winded — catch your breath.', 'alert'); }
+    else if (s.winded && s.stamina > 0.2) s.winded = false;
     warnLow('thirst', s.thirst, 'Your throat is dry. Find water.');
     warnLow('hunger', s.hunger, 'Hunger is setting in. Eat something.');
     warnLow('health', s.health, 'You are fading — eat, drink, stay clear of the flames.');
@@ -1407,6 +1480,7 @@ function updateSurvival(dt) {
   paintVital(HUD.vHealth, s.health);
   paintVital(HUD.vThirst, s.thirst);
   paintVital(HUD.vHunger, s.hunger);
+  paintVital(HUD.vStamina, s.stamina);
 }
 function update(dt) {
   dt = Math.min(dt, 0.05);
@@ -1424,6 +1498,8 @@ function update(dt) {
     const b = cacheGroup.getObjectByName('beacon');
     b.material.opacity = 0.12 + 0.06 * Math.sin(state.time * 1.6);
   }
+  // picked bushes quietly regrow their berries
+  for (const b of bushes) if (!b.berries.visible && bushReady(b)) b.berries.visible = true;
   // fade + hint are clocked off game time (CSS transitions stall under
   // headless virtual time, and the test harness needs determinism anyway)
   const introK = Math.max(0, 1 - state.time / 2.2);
@@ -1542,7 +1618,7 @@ function drawOverlay() {
 
 /* ------------------------------------------------------- debug/test hooks -- */
 const G = {
-  state, player, cam, camera, inventory, stations, PADS, CACHE, SPAWN,
+  state, player, cam, camera, inventory, stations, PADS, CACHE, SPAWN, bushes,
   terrainH, padMeters, coverageFor, coveragePercent, buildStation, doSalvage,
   tryInteract, keys, trees, fogTarget, fogState, errors, Events,
   step(n) { for (let i = 0; i < (n || 1); i++) update(1 / 60); },
@@ -2133,7 +2209,7 @@ function spawnCache2() {
 function doSalvage2() {
   if (!cache2.spawned || cache2.salvaged) return;
   cache2.salvaged = true;
-  inventory.solar++; inventory.droneKit++; inventory.radio++;
+  inventory.solar++; inventory.droneKit++; inventory.radio++; inventory.rations += 2;
   renderChips();
   cache2.group.getObjectByName('beacon2').visible = false;
   toast('RADIO PARTS — the mesh wants a second node', 'good');
@@ -2664,6 +2740,27 @@ async function runTests() {
   });
   await raf();
 
+  T('forage: berry bushes feed you and regrow', () => {
+    assert(G.bushes.length >= 10, 'too few bushes planted: ' + G.bushes.length);
+    const b = G.bushes[0];
+    G.teleport(b.x + 1, b.z + 1);
+    state.survival.hunger = 0.3;
+    G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'forage',
+      'no forage prompt at a bush: ' + (state.promptTarget && state.promptTarget.type));
+    tryInteract();
+    assert(state.survival.hunger > 0.5, 'berries did not feed: ' + state.survival.hunger.toFixed(2));
+    assert(!b.berries.visible, 'berries still showing after picking');
+    G.step(3);
+    assert(!state.promptTarget || state.promptTarget.type !== 'forage', 'picked bush still offers berries');
+    b.pickedUntil = state.time - 1;   // fast-forward the regrowth clock
+    G.step(3);
+    assert(b.berries.visible, 'berries did not regrow');
+    assert(state.promptTarget && state.promptTarget.type === 'forage', 'regrown bush not forageable');
+    return G.bushes.length + ' bushes in the valley; picked +0.25 hunger, regrew';
+  });
+  await raf();
+
   T('survival: running on empty slows you', () => {
     const runN = () => {
       G.teleport(SPAWN.x, SPAWN.z);
@@ -2679,6 +2776,60 @@ async function runTests() {
     assert(dEmpty < dFull * 0.75,
       'empty need did not slow: full ' + dFull.toFixed(1) + 'm vs empty ' + dEmpty.toFixed(1) + 'm');
     return 'full ' + dFull.toFixed(1) + 'm vs empty ' + dEmpty.toFixed(1) + 'm over 2s';
+  });
+  await raf();
+
+  T('sprint: faster while the wind lasts', () => {
+    const s = state.survival;
+    const run = () => {
+      G.teleport(SPAWN.x, SPAWN.z);
+      const x0 = player.pos.x, z0 = player.pos.z;
+      keys['KeyW'] = true; G.step(120); keys['KeyW'] = false;
+      return Math.hypot(player.pos.x - x0, player.pos.z - z0);
+    };
+    s.hunger = 1; s.thirst = 1; s.stamina = 1; s.winded = false;
+    const dWalk = run();
+    s.stamina = 1;
+    keys['ShiftLeft'] = true;
+    const dSprint = run();
+    keys['ShiftLeft'] = false;
+    assert(dSprint > dWalk * 1.25, 'sprint not faster: ' + dSprint.toFixed(1) + 'm vs ' + dWalk.toFixed(1) + 'm');
+    assert(s.stamina < 0.9, 'sprint cost no stamina: ' + s.stamina.toFixed(2));
+    return 'walk ' + dWalk.toFixed(1) + 'm vs sprint ' + dSprint.toFixed(1) + 'm per 2s, stamina ' + s.stamina.toFixed(2);
+  });
+  await raf();
+
+  T('winded: empty stamina blocks sprint and jump', () => {
+    const s = state.survival;
+    s.stamina = 0.001; s.winded = false; s.hunger = 1; s.thirst = 1;
+    G.teleport(SPAWN.x, SPAWN.z);
+    keys['ShiftLeft'] = true; keys['KeyW'] = true;
+    G.step(10);   // burn out the last of the wind
+    assert(s.winded, 'never went winded');
+    const x0 = player.pos.x, z0 = player.pos.z;
+    G.step(60);   // one second at whatever pace is left
+    keys['KeyW'] = false; keys['ShiftLeft'] = false;
+    const dWinded = Math.hypot(player.pos.x - x0, player.pos.z - z0);
+    assert(dWinded < 6.2 * 1.15, 'winded but still sprinting: ' + dWinded.toFixed(1) + 'm in 1s');
+    keys['Space'] = true; G.step(2); keys['Space'] = false;
+    assert(!player.airborne, 'winded but jumped anyway');
+    return 'winded: walk pace only (' + dWinded.toFixed(1) + 'm/s), jump refused';
+  });
+  await raf();
+
+  T('stamina: idle regains wind, hunger slows it', () => {
+    const s = state.survival;
+    G.teleport(SPAWN.x, SPAWN.z);
+    s.stamina = 0.3; s.winded = false; s.hunger = 1; s.thirst = 1;
+    G.step(300);   // 5s standing still
+    const fedRegen = s.stamina - 0.3;
+    assert(fedRegen > 0.5, 'idle regen too slow: +' + fedRegen.toFixed(2));
+    s.stamina = 0.3; s.hunger = 0.1;
+    G.step(300);
+    const hungryRegen = s.stamina - 0.3;
+    s.hunger = 1;
+    assert(hungryRegen < fedRegen * 0.7, 'hunger should slow regen: +' + hungryRegen.toFixed(2) + ' vs +' + fedRegen.toFixed(2));
+    return 'idle 5s: fed +' + fedRegen.toFixed(2) + ', hungry +' + hungryRegen.toFixed(2);
   });
   await raf();
 
@@ -2699,7 +2850,7 @@ async function runTests() {
 
   T('jump: a real hop, up and back down clean', () => {
     G.teleport(SPAWN.x, SPAWN.z);
-    const s = state.survival; s.health = 1; s.hunger = 1; s.thirst = 1;
+    const s = state.survival; s.health = 1; s.hunger = 1; s.thirst = 1; s.stamina = 1; s.winded = false;
     keys['Space'] = true; G.step(2); keys['Space'] = false;
     assert(player.airborne, 'never left the ground');
     let peak = 0, guard = 0;
