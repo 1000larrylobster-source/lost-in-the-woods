@@ -1056,6 +1056,8 @@ function nearestInteract() {
         && inventory.dBattery > 0 && (inventory.dCamera > 0 || inventory.dNoir > 0))
       return { type: 'droneAsm', label: 'Assemble the drone' + (inventory.dNoir > 0 ? ' (NoIR eyes)' : ''), pad };
     // tend the node: the maintenance loop, by hand
+    if (st && st.antennaDown)
+      return { type: 'reguy', label: 'Re-rig the antenna guys', st };
     if (st && st.foul > 0.25)
       return { type: 'wipe', label: 'Wipe the panel down', st };
     if (st && st.drone && st.wear > 0.5)
@@ -1144,6 +1146,7 @@ function tryInteract() {
   else if (t.type === 'droneAsm') { if (assembleDrone(t.pad)) droneUpSound(); }
   else if (t.type === 'wipe') { t.st.foul = 0; wipeSwish(); toast('Panel wiped clean — full yield again.', 'good'); saveForest(); }
   else if (t.type === 'service') { t.st.wear = 0; serviceRatchet(); toast('Rotors trued, bearings oiled.', 'good'); saveForest(); }
+  else if (t.type === 'reguy') { t.st.antennaDown = false; serviceRatchet(); toast('Antenna re-rigged and guyed. The node answers again.', 'good'); saveForest(); }
   else if (t.type === 'talk') {
     toast(t.rec.name + ': ' + t.rec.lines[t.rec.lineIdx % t.rec.lines.length], 'good');
     t.rec.lineIdx++;
@@ -1535,7 +1538,7 @@ function tendStep(st, dt) {
   const day = 1 - clock.nightK;
   const sunF = padMetersCached(st.pad).sun;
   st.foul = clamp(st.foul + dt / 1100, 0, 1);          // ~2 day-cycles to full foul
-  const charge = day * sunF * (1 - 0.6 * st.foul) / 140;
+  const charge = day * sunF * (1 - 0.6 * st.foul) * (1 - 0.95 * storm.k) / 140;
   let drain = 1 / 900;
   const flying = st.drone && (st.phase === 'patrol' || st.phase === 'launch');
   if (flying) {
@@ -1543,13 +1546,15 @@ function tendStep(st, dt) {
     st.wear = clamp(st.wear + dt / 900, 0, 1);          // rotors wear with flight time
   }
   st.power = clamp(st.power + dt * (charge - drain), 0, 1);
-  if (st.phase === 'patrol' && st.power <= 0.02) {
+  if (st.phase === 'patrol' && (st.power <= 0.02 || storm.k > 0.6)) {
     st.phase = 'grounded'; st.phaseT = 0;
-    toast(st.pad.name.toUpperCase() + ' STATION dark — no power. The drone set itself down.', 'alert');
-  } else if (st.phase === 'grounded' && st.power > 0.15) {
+    toast(st.pad.name.toUpperCase() + (storm.k > 0.6
+      ? ' — drone down for weather. It will not fly in this.'
+      : ' STATION dark — no power. The drone set itself down.'), 'alert');
+  } else if (st.phase === 'grounded' && st.power > 0.15 && storm.k < 0.5) {
     st.phase = 'launch'; st.phaseT = 0;
   }
-  st.online = st.phase !== 'grounded' && st.power > 0.02;
+  st.online = st.phase !== 'grounded' && st.power > 0.02 && !st.antennaDown;
   warnStation(st, 'power', st.power < 0.25 && st.phase !== 'grounded',
     st.pad.name.toUpperCase() + ' station: power low — the panel is not keeping up.');
   warnStation(st, 'foul', st.foul > 0.7,
@@ -2145,7 +2150,41 @@ function windStep(dt) {
     WIND.gustK = a < 2.5 ? a / 2.5 : (a < WIND.gustLen - 3 ? 1 : Math.max(0, (WIND.gustLen - a) / 3));
     if (a >= WIND.gustLen) { WIND.gusting = false; WIND.gustK = 0; WIND.gustT = (25 + fireRng() * 45) / gustMul; }
   }
-  WIND.speed = 0.4 + 1.7 * WIND.gustK * gustMul;
+  WIND.speed = 0.4 + 1.7 * WIND.gustK * gustMul + 1.2 * storm.k;
+}
+/* -------------------------------------------- storms (region 5+): weather -- */
+// A front rolls in with warning: slate sky, swelling wind, a falling barometer
+// tone. While it runs: drones grounded, solar near-zero, antennas at risk — and
+// the rain halves the fire. Shield and sword.
+const storm = { active: false, k: 0, nextT: 120, ageT: 0, len: 0, force: false };
+function stormStep(dt) {
+  if (!(REGION_IDX >= 5 || storm.force)) return;   // quiet country until the canyon
+  if (!storm.active) {
+    storm.nextT -= dt;
+    if (storm.nextT <= 0) {
+      storm.active = true; storm.ageT = 0;
+      storm.len = 60 + fireRng() * 50;
+      barometerTone();
+      toast('The sky goes the color of slate — a front is coming in.', 'alert');
+    }
+  } else {
+    storm.ageT += dt;
+    storm.k = storm.ageT < 8 ? storm.ageT / 8
+      : (storm.ageT > storm.len - 10 ? Math.max(0, (storm.len - storm.ageT) / 10) : 1);
+    if (storm.ageT >= storm.len) {
+      storm.active = false; storm.k = 0;
+      storm.nextT = (REGION.id === 'canyon' ? 180 : 420) + fireRng() * 220;
+      toast('The front passes. Wet ground, quiet sky — check your antennas.', 'good');
+    } else if (storm.k > 0.8) {
+      // hard weather works on the masts
+      for (const st of stations) {
+        if (!st.antennaDown && fireRng() < dt * 0.008) {
+          st.antennaDown = true;
+          toast(st.pad.name.toUpperCase() + ' — ANTENNA DOWN. The storm took the guys. Node dark until re-rigged.', 'alert');
+        }
+      }
+    }
+  }
 }
 
 // fuel map: each cell's anchor tree (the tree that torches) + trees close to it
@@ -2215,7 +2254,7 @@ const NBR = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1
 function fireStep(dt) {
   windStep(dt);
   const wx = Math.sin(WIND.angle), wz = Math.cos(WIND.angle);
-  const hurry = 1 + WIND.gustK * 0.9;   // a gust hurries every burning cell
+  const hurry = (1 + WIND.gustK * 0.9) * (1 - 0.5 * storm.k);   // gusts hurry the fire; rain slows it
   const done = [];
   for (const [k, c] of fire.cells) {
     c.t += dt * fire.SPEED * hurry;
@@ -2691,7 +2730,7 @@ const LN = {
   sunColDay: new THREE.Color(0xffdaa0), sunColNight: new THREE.Color(0x9fb2dd),
 };
 function applyNight() {
-  const n = clock.nightK;
+  const n = Math.max(clock.nightK, storm.k * 0.65);
   sun.intensity = lerp(1.25, 0.1, n);
   sun.color.lerpColors(LN.sunDay, LN.sunNight, n);
   hemi.intensity = lerp(0.55, 0.22, n);
@@ -3160,7 +3199,9 @@ function arcStep(dt) {
     arc.endlessNextT -= dt;
     if (arc.endlessNextT <= 0) {
       if (fire.cells.size === 0) {
-        if (REGION.id === 'lake' && clock.nightK < 0.5 && fireRng() < 0.6) {
+        if (storm.k > 0.5) {
+          arc.endlessNextT = 30 + fireRng() * 30;   // nothing catches in the rain
+        } else if (REGION.id === 'lake' && clock.nightK < 0.5 && fireRng() < 0.6) {
           arc.endlessNextT = 20 + fireRng() * 30;   // dark water waits for dark
         } else { randomIgnite(); arc.endlessNextT = REGION.fireEvery * (0.95 + fireRng() * 1.35); }
       }
@@ -3293,6 +3334,7 @@ function cardSting() { tone(523, 0.5, 0.045, 'triangle'); tone(392, 0.8, 0.04, '
 function blackoutDrone() { tone(110, 1.4, 0.07, 'sawtooth', 0, -50); tone(82, 1.8, 0.06, 'sine', 0.3, -20); }
 function recruitMotif() { tone(330, 0.4, 0.045, 'triangle'); tone(415, 0.4, 0.045, 'triangle', 0.18); tone(494, 0.7, 0.05, 'triangle', 0.36); }
 function cicadaBuzz() { for (let i = 0; i < 6; i++) tone(3800 + Math.random() * 300, 0.05, 0.011, 'sawtooth', i * 0.07); }
+function barometerTone() { tone(240, 1.6, 0.05, 'sine', 0, -90); tone(170, 1.8, 0.04, 'sine', 0.9, -50); }
 function loonCall() { tone(740, 0.7, 0.035, 'sine', 0, -120); tone(880, 0.9, 0.03, 'sine', 0.8, -240); }
 function birdChirp() {
   const f = 2500 + Math.random() * 800;
@@ -3346,6 +3388,7 @@ function saveForest() {
       stations: stations.map(s => s.pad.id),
       needsDrone: stations.filter(s => s.phase === 'needsDrone').map(s => s.pad.id),
       noir: stations.filter(s => s.noir).map(s => s.pad.id),
+      antDown: stations.filter(s => s.antennaDown).map(s => s.pad.id),
       stTend: stations.map(s => ({ id: s.pad.id, p: s.power, f: s.foul, w: s.wear })),
       inv: Object.assign({}, inventory),
       surv: { h: state.survival.health, hu: state.survival.hunger, th: state.survival.thirst, w: state.survival.warmth },
@@ -3480,6 +3523,12 @@ function restoreForest() {
           if (st) st.noir = true;
         }
       }
+      if (Array.isArray(data.antDown)) {
+        for (const id of data.antDown) {
+          const st = stations.find(s => s.pad.id === id);
+          if (st) st.antennaDown = true;
+        }
+      }
       if (Array.isArray(data.stTend)) {
         for (const td of data.stTend) {
           const st = stations.find(s => s.pad.id === td.id);
@@ -3532,6 +3581,7 @@ function fireHurtStep(dt) {
 Events.on('tick', (dt) => {
   clockStep(dt);
   applyNight();
+  stormStep(dt);
   fireStep(dt);
   fireHurtStep(dt);
   fireVisualStep(dt);
@@ -3588,7 +3638,7 @@ Object.assign(G, {
   fire, WIND, igniteCell, igniteNear, cellIndexFor, cellHasFuel, cellAnchor, fuelTotal,
   firebreak, clock, detectRadius, arc, firstSmoke, showCard, dismissCard, forestHealth,
   hiker, spawnHiker, rescueHiker, cache2, spawnCache2, doSalvage2, recruits, settleRecruit,
-  rangeLoad, travelNext, sleepUntilDawn, herds, spawnHerd, animalPing, detectRadiusFor,
+  rangeLoad, travelNext, sleepUntilDawn, herds, spawnHerd, animalPing, detectRadiusFor, storm,
   saveForest, loadForest, SAVE_KEY, store, score, stationAt, restoreStation,
   flamePool, smokeParts, smokeLive, scorchMesh: scorch, sun, toast,
 });
@@ -4407,6 +4457,52 @@ async function runTests() {
     h.elk.length = 0;
     animalPing.cooldownUntil = state.time + 9999;
     return 'flagged, confirmed on foot (+10), spooked upwind, taken downwind (+2 rations)';
+  });
+  await raf();
+
+  T('storm: the front grounds drones, kills yield, soaks the fire', () => {
+    const st = stations[0];
+    for (const s of stations) { s.power = 1; s.foul = 0; s.antennaDown = false; if (s.phase === 'grounded') { s.phase = 'launch'; s.phaseT = 0; } }
+    let guard = 0;
+    while (st.phase !== 'patrol' && guard++ < 600) G.step(1);
+    storm.force = true; storm.active = false; storm.nextT = 0.1;
+    guard = 0;
+    while (storm.k < 0.9 && guard++ < 1500) G.step(1);
+    assert(storm.active && storm.k > 0.9, 'front never built: k=' + storm.k.toFixed(2));
+    assert(st.phase === 'grounded', 'drone flew through the storm: ' + st.phase);
+    // yield: day + clean panel + storm = power still falls
+    G.clock.set(60);
+    st.power = 0.5; st.foul = 0;
+    G.step(300);
+    assert(st.power < 0.5, 'panel charging through a storm: ' + st.power.toFixed(3));
+    // rain slows the burn (wind held calm for a clean read)
+    WIND.gusting = false; WIND.gustK = 0; WIND.gustT = 9999;
+    const k1 = G.igniteNear(-140, 60);
+    assert(k1 >= 0, 'no fuel for the rain test');
+    const cell = G.fire.cells.get(k1);
+    const t0 = cell.t;
+    G.step(120);
+    const wetRate = (cell.t - t0) / 2;
+    assert(wetRate < 0.75, 'rain not slowing the fire: ' + wetRate.toFixed(2) + '/s');
+    // a downed antenna darkens the node at full power; re-rigging answers
+    st.antennaDown = true; G.step(2);
+    assert(!st.online, 'antenna down but node still online');
+    G.teleport(st.pad.x + 3, st.pad.z); G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'reguy', 'no re-rig prompt: ' + (state.promptTarget && state.promptTarget.type));
+    tryInteract();
+    assert(!st.antennaDown, 're-rig failed');
+    // the front passes
+    storm.ageT = storm.len;
+    G.step(5);
+    assert(!storm.active && storm.k === 0, 'storm never ended');
+    storm.force = false; storm.nextT = 99999;
+    G.fire.contained = true;
+    for (const [, cc] of G.fire.cells) cc.out = Math.min(cc.out, cc.t + 0.5);
+    guard = 0;
+    while (G.fire.cells.size && guard++ < 900) G.step(1);
+    G.fire.contained = false;
+    for (const s of stations) { s.power = 1; if (s.phase === 'grounded') { s.phase = 'launch'; s.phaseT = 0; } }
+    return 'grounded for weather, ~0 yield, burn at ' + wetRate.toFixed(2) + 'x, antenna re-rigged, front passed';
   });
   await raf();
 
