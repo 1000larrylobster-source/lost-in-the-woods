@@ -96,6 +96,11 @@
             font-weight:800; font-size:22px; display:none; align-items:center; justify-content:center;
             z-index:35; border:3px solid rgba(255,240,220,.8); font-family:inherit;
             box-shadow:0 4px 18px rgba(0,0,0,.4); }
+  #btnJump { position:absolute; right:28px; bottom:calc(max(16px, env(safe-area-inset-bottom)) + 132px);
+             width:52px; height:52px; border-radius:50%; background:rgba(255,217,168,.55); color:#241a10;
+             font-weight:800; font-size:15px; display:none; align-items:center; justify-content:center;
+             z-index:35; border:2px solid rgba(255,240,220,.6); font-family:inherit;
+             box-shadow:0 3px 14px rgba(0,0,0,.35); letter-spacing:.04em; }
 
   #vignette { position:absolute; inset:0; pointer-events:none; z-index:15;
               background: radial-gradient(ellipse at center, transparent 55%, rgba(10,5,20,.55) 100%); }
@@ -110,6 +115,7 @@
   <div id="hud">
     <div id="objective" class="hudText"><span class="k">OBJECTIVE</span><span id="objText">Dusk is falling. Follow the trail north.</span></div>
     <div id="vitals" class="hudText">
+      <div class="vital"><span class="k">HEALTH</span><div class="bar"><div class="fill" id="vHealth"></div></div></div>
       <div class="vital"><span class="k">HUNGER</span><div class="bar"><div class="fill" id="vHunger"></div></div></div>
       <div class="vital"><span class="k">THIRST</span><div class="bar"><div class="fill" id="vThirst"></div></div></div>
     </div>
@@ -132,10 +138,11 @@
       <div class="meterRow"><span class="lbl">LINE-OF-SIGHT</span><div class="bar"><div class="fill" id="mLos"></div></div><span class="num" id="nLos">0</span></div>
       <div id="padAction"></div>
     </div>
-    <div id="hint" class="hudText">WASD MOVE &nbsp;·&nbsp; DRAG TO LOOK</div>
+    <div id="hint" class="hudText">WASD MOVE &nbsp;·&nbsp; SPACE JUMP &nbsp;·&nbsp; DRAG TO LOOK</div>
   </div>
   <div id="joy"><div id="joyKnob"></div></div>
   <button id="btnAct">&#9679;</button>
+  <button id="btnJump">&#9650;</button>
   <div id="warm"></div>
   <div id="vignette"></div>
   <div id="card"><h1>THE FOREST REMEMBERS</h1><div class="sub" id="cardSub"></div><div class="cont">PRESS ANY KEY · TAP</div></div>
@@ -602,6 +609,7 @@ const player = {
   heading: Math.PI,            // facing north (-Z)
   speed: 0,
   bobT: 0,
+  vy: 0, airborne: false, jumpLatch: false,   // vertical physics
   parts: {},
 };
 (function buildCharacter() {
@@ -633,7 +641,7 @@ const player = {
 })();
 
 /* ---------------------------------------------------------------- input -- */
-const input = { f: 0, r: 0, joy: null, camDrag: null, actHold: false };
+const input = { f: 0, r: 0, joy: null, camDrag: null, actHold: false, jumpHeld: false };
 const keys = {};
 window.addEventListener('keydown', (e) => {
   keys[e.code] = true;
@@ -703,6 +711,10 @@ document.getElementById('btnAct').addEventListener('click', () => tryInteract())
 document.getElementById('btnAct').addEventListener('touchstart', () => { input.actHold = true; }, { passive: true });
 document.getElementById('btnAct').addEventListener('touchend', () => { input.actHold = false; }, { passive: true });
 document.getElementById('btnAct').addEventListener('touchcancel', () => { input.actHold = false; }, { passive: true });
+const btnJump = document.getElementById('btnJump');
+btnJump.addEventListener('touchstart', () => { input.jumpHeld = true; }, { passive: true });
+btnJump.addEventListener('touchend', () => { input.jumpHeld = false; }, { passive: true });
+btnJump.addEventListener('touchcancel', () => { input.jumpHeld = false; }, { passive: true });
 
 function readMoveInput() {
   let f = 0, r = 0;
@@ -735,10 +747,15 @@ const HUD = {
   btnAct: document.getElementById('btnAct'),
   hint: document.getElementById('hint'),
   vitals: document.getElementById('vitals'),
+  vHealth: document.getElementById('vHealth'),
   vHunger: document.getElementById('vHunger'),
   vThirst: document.getElementById('vThirst'),
 };
-if (IS_TOUCH) { HUD.hint.textContent = 'LEFT THUMB MOVE · RIGHT THUMB LOOK'; HUD.promptKey.style.display = 'none'; }
+if (IS_TOUCH) {
+  HUD.hint.textContent = 'LEFT THUMB MOVE · RIGHT THUMB LOOK';
+  HUD.promptKey.style.display = 'none';
+  document.getElementById('btnJump').style.display = 'flex';
+}
 
 const inventory = { solar: 0, droneKit: 0, map: 0, radio: 0, rations: 0 };
 function renderChips() {
@@ -766,7 +783,8 @@ const state = {
   promptTarget: null,
   time: 0,
   // survival: 1 = full, 0 = empty. warned tracks one-shot low-need alerts.
-  survival: { hunger: 1, thirst: 1, warned: {} },
+  // bo > 0 = blacking out (timer); boMoved = the wake-at-base move happened.
+  survival: { health: 1, hunger: 1, thirst: 1, warned: {}, bo: 0, boMoved: false },
 };
 // "base" = the ranger cache or any watch station you've built — where you eat
 function nearBase(px, pz) {
@@ -799,13 +817,14 @@ function tryInteract() {
   if (!t) return;
   if (t.type === 'cache') doSalvage();
   else if (t.type === 'build') buildStation(t.pad);
-  else if (t.type === 'drink') { state.survival.thirst = 1; toast('Cold creek water. Thirst slaked.', 'good'); }
+  else if (t.type === 'drink') { state.survival.thirst = 1; toast('Cold creek water. Thirst slaked.', 'good'); saveForest(); }
   else if (t.type === 'eat') {
     if (inventory.rations > 0) {
       inventory.rations--;
       state.survival.hunger = Math.min(1, state.survival.hunger + 0.7);
       renderChips();
       toast('You eat a ration.', 'good');
+      saveForest();
     }
   }
   else p2Interact(t);   // firebreak is a HOLD, handled per-frame in phase 2
@@ -1217,7 +1236,8 @@ function updatePads() {
 
 /* ----------------------------------------------------------- game update -- */
 function updateCharacter(dt) {
-  const mv = readMoveInput();
+  // blacked out: the body is not yours to steer
+  const mv = state.survival.bo > 0 ? { f: 0, r: 0 } : readMoveInput();
   // camera-relative move direction
   const fwd = new THREE.Vector3(-Math.sin(cam.yaw), 0, -Math.cos(cam.yaw));
   const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
@@ -1245,27 +1265,60 @@ function updateCharacter(dt) {
     let step = player.speed * dt;
     // slope resistance: steep climbs slow you, cliffs stop you
     const nx = player.pos.x + dir.x * step, nz = player.pos.z + dir.z * step;
-    const h0 = terrainH(player.pos.x, player.pos.z), h1 = terrainH(nx, nz);
-    const grade = (h1 - h0) / Math.max(0.01, step);
-    if (grade > 1.7) step = 0;
-    else if (grade > 0.85) step *= 0.4;
-    // shallow river slows you
-    if (Math.abs(player.pos.x - riverX(player.pos.z)) < 7) step *= 0.6;
+    if (!player.airborne) {
+      const h0 = terrainH(player.pos.x, player.pos.z), h1 = terrainH(nx, nz);
+      const grade = (h1 - h0) / Math.max(0.01, step);
+      if (grade > 1.7) step = 0;
+      else if (grade > 0.85) step *= 0.4;
+      // shallow river slows you
+      if (Math.abs(player.pos.x - riverX(player.pos.z)) < 7) step *= 0.6;
+    }
     player.pos.x = clamp(player.pos.x + dir.x * step, -292, 292);
     player.pos.z = clamp(player.pos.z + dir.z * step, -292, 292);
   }
-  player.pos.y = terrainH(player.pos.x, player.pos.z);
-  // walk-cycle bob
+  /* vertical: gravity, jumping, edges that drop away, landings that count */
+  const GRAV = 13, JUMP_V = 4.8;
+  const ground = terrainH(player.pos.x, player.pos.z);
+  if (player.airborne) {
+    player.vy -= GRAV * dt;
+    player.pos.y += player.vy * dt;
+    if (player.pos.y <= ground) {
+      const impact = -player.vy;
+      player.pos.y = ground;
+      player.airborne = false; player.vy = 0;
+      landHit(impact);
+    }
+  } else {
+    if (ground < player.pos.y - 0.45) {      // the ground fell away — you're off an edge
+      player.airborne = true; player.vy = 0;
+    } else {
+      player.pos.y = ground;
+    }
+    const wantJump = (keys['Space'] || input.jumpHeld) && state.survival.bo <= 0;
+    if (wantJump && !player.jumpLatch && !player.airborne) {
+      player.airborne = true; player.vy = JUMP_V;
+    }
+    player.jumpLatch = wantJump;
+  }
+  // walk-cycle bob (grounded only)
   const moving = player.speed > 0.4;
-  player.bobT += dt * (moving ? player.speed * 1.9 : 0);
+  player.bobT += dt * (moving && !player.airborne ? player.speed * 1.9 : 0);
   const P = player.parts, sw = Math.sin(player.bobT) * clamp(player.speed / 6.2, 0, 1);
   P.legL.rotation.x = sw * 0.85;
   P.legR.rotation.x = -sw * 0.85;
   P.armL.rotation.x = -sw * 0.6;
   P.armR.rotation.x = sw * 0.6;
-  const bobY = Math.abs(Math.cos(player.bobT)) * 0.06 * clamp(player.speed / 6.2, 0, 1);
+  const bobY = player.airborne ? 0 : Math.abs(Math.cos(player.bobT)) * 0.06 * clamp(player.speed / 6.2, 0, 1);
   player.group.position.set(player.pos.x, player.pos.y + bobY, player.pos.z);
   player.group.rotation.y = player.heading;
+}
+// landing costs above a survivable speed — 9.2 m/s ≈ a 3m drop is free
+function landHit(impact) {
+  if (impact <= 9.2) return;
+  const dmg = (impact - 9.2) * 0.06;
+  const s = state.survival;
+  s.health = clamp(s.health - dmg, 0, 1);
+  toast(dmg > 0.25 ? 'A hard fall. Something gives.' : 'You land hard.', 'alert');
 }
 function updateCamera(dt) {
   // Ocarina-of-Time third-person: when you're moving and not steering the camera
@@ -1307,6 +1360,8 @@ function updateInteract() {
 /* --------------------------------------------------- survival: needs -- */
 // thirst empties in ~4 min, hunger in ~7 — present but not frantic.
 const DRAIN_THIRST = 1 / 238, DRAIN_HUNGER = 1 / 417;
+// health: starving/parched wear you down; decent needs slowly knit you back.
+const STARVE_HP = 1 / 120, PARCH_HP = 1 / 90, REGEN_HP = 1 / 240;
 function paintVital(el, v) {
   if (!el) return;
   el.style.width = (v * 100).toFixed(0) + '%';
@@ -1321,10 +1376,35 @@ function warnLow(key, v, msg) {
 }
 function updateSurvival(dt) {
   const s = state.survival;
-  s.thirst = clamp(s.thirst - dt * DRAIN_THIRST, 0, 1);
-  s.hunger = clamp(s.hunger - dt * DRAIN_HUNGER, 0, 1);
-  warnLow('thirst', s.thirst, 'Your throat is dry. Find water.');
-  warnLow('hunger', s.hunger, 'Hunger is setting in. Eat something.');
+  if (s.bo > 0) {
+    // blacked out — the screen is dark; at the deepest point you wake at the cache
+    s.bo += dt;
+    if (!s.boMoved && s.bo >= 0.8) {
+      s.boMoved = true;
+      player.pos.set(CACHE.x + 3, terrainH(CACHE.x + 3, CACHE.z + 3), CACHE.z + 3);
+      player.vy = 0; player.airborne = false;
+      s.health = 0.35;
+      s.hunger = Math.max(s.hunger, 0.35);
+      s.thirst = Math.max(s.thirst, 0.35);
+      toast('You black out. You wake at the cache — weaker, and time has passed.', 'alert');
+      Events.emit('blackout', {});
+      saveForest();
+    }
+    if (s.bo >= 2.5) { s.bo = 0; s.boMoved = false; }
+  } else {
+    s.thirst = clamp(s.thirst - dt * DRAIN_THIRST, 0, 1);
+    s.hunger = clamp(s.hunger - dt * DRAIN_HUNGER, 0, 1);
+    let wear = 0;
+    if (s.hunger <= 0) wear += STARVE_HP;
+    if (s.thirst <= 0) wear += PARCH_HP;
+    if (wear > 0) s.health = clamp(s.health - dt * wear, 0, 1);
+    else if (s.hunger > 0.5 && s.thirst > 0.5) s.health = clamp(s.health + dt * REGEN_HP, 0, 1);
+    warnLow('thirst', s.thirst, 'Your throat is dry. Find water.');
+    warnLow('hunger', s.hunger, 'Hunger is setting in. Eat something.');
+    warnLow('health', s.health, 'You are fading — eat, drink, stay clear of the flames.');
+    if (s.health <= 0) { s.bo = 0.0001; s.boMoved = false; }
+  }
+  paintVital(HUD.vHealth, s.health);
   paintVital(HUD.vThirst, s.thirst);
   paintVital(HUD.vHunger, s.hunger);
 }
@@ -1346,7 +1426,10 @@ function update(dt) {
   }
   // fade + hint are clocked off game time (CSS transitions stall under
   // headless virtual time, and the test harness needs determinism anyway)
-  fadeEl.style.opacity = String(Math.max(0, 1 - state.time / 2.2));
+  const introK = Math.max(0, 1 - state.time / 2.2);
+  const bo = state.survival.bo;
+  const boK = bo <= 0 ? 0 : bo < 0.6 ? bo / 0.6 : bo < 1.6 ? 1 : Math.max(0, (2.5 - bo) / 0.9);
+  fadeEl.style.opacity = String(Math.max(introK, boK));
   if (state.time > 8) HUD.hint.style.opacity = '0';
   Events.emit('tick', dt);
 }
@@ -1465,6 +1548,7 @@ const G = {
   step(n) { for (let i = 0; i < (n || 1); i++) update(1 / 60); },
   teleport(x, z) {
     player.pos.set(x, terrainH(x, z), z);
+    player.vy = 0; player.airborne = false;
     player.group.position.copy(player.pos);
     cam.pos.set(x, player.pos.y + 6, z + 8);
     cam.look.set(x, player.pos.y + 1.9, z);
@@ -2350,7 +2434,8 @@ function saveForest() {
       v: 1,
       burned: Array.from(fire.burned),
       stations: stations.map(s => s.pad.id),
-      inv: { solar: inventory.solar, droneKit: inventory.droneKit, map: inventory.map, radio: inventory.radio },
+      inv: { solar: inventory.solar, droneKit: inventory.droneKit, map: inventory.map, radio: inventory.radio, rations: inventory.rations },
+      surv: { h: state.survival.health, hu: state.survival.hunger, th: state.survival.thirst },
       day: clock.day, score: score.n,
       best: Math.max(coveragePercent(), (loadForest() || {}).best || 0),
       cache2: cache2.salvaged, rescued: hiker.done,
@@ -2405,7 +2490,13 @@ function restoreForest() {
   if (Array.isArray(data.stations) && data.stations.length) {
     restored = true;
     state.salvaged = true;
-    if (data.inv) { inventory.solar = data.inv.solar | 0; inventory.droneKit = data.inv.droneKit | 0; inventory.map = data.inv.map | 0; inventory.radio = data.inv.radio | 0; }
+    if (data.inv) { inventory.solar = data.inv.solar | 0; inventory.droneKit = data.inv.droneKit | 0; inventory.map = data.inv.map | 0; inventory.radio = data.inv.radio | 0; inventory.rations = data.inv.rations | 0; }
+    if (data.surv) {
+      state.survival.health = clamp(+data.surv.h || 1, 0.05, 1);   // never restore into a blackout
+      state.survival.hunger = clamp(+data.surv.hu || 0, 0, 1);
+      state.survival.thirst = clamp(+data.surv.th || 0, 0, 1);
+    }
+    HUD.vitals.style.display = 'flex';
     renderChips();
     cacheGroup.getObjectByName('beacon').visible = false;
     for (const g of padMarkers) {
@@ -2431,10 +2522,22 @@ function restoreForest() {
 }
 
 /* ------------------------------------------------------ phase 2 heartbeat -- */
+// fire has teeth: stand inside the flames and your health burns with the trees
+function fireHurtStep(dt) {
+  const s = state.survival;
+  if (s.bo > 0 || !fire.cells.size) return;
+  if (!nearestBurning(player.pos.x, player.pos.z, 3.2)) return;
+  s.health = clamp(s.health - dt * 0.11, 0, 1);
+  if (!s.heatToastT || state.time - s.heatToastT > 6) {
+    s.heatToastT = state.time;
+    toast('THE HEAT — you are too close to the fire!', 'alert');
+  }
+}
 Events.on('tick', (dt) => {
   clockStep(dt);
   applyNight();
   fireStep(dt);
+  fireHurtStep(dt);
   fireVisualStep(dt);
   detectStep(dt);
   firebreakStep(dt);
@@ -2579,6 +2682,79 @@ async function runTests() {
   });
   await raf();
 
+  T('health: starving wears you down, eating knits you back', () => {
+    const s = state.survival;
+    G.teleport(SPAWN.x, SPAWN.z);
+    s.health = 1; s.hunger = 0; s.thirst = 0; s.warned = {}; s.bo = 0;
+    G.step(600);   // 10s starving + parched
+    assert(s.health < 0.9, 'health did not wear: ' + s.health.toFixed(2));
+    assert(s.health > 0.5, 'wore too fast: ' + s.health.toFixed(2));
+    const worn = s.health;
+    s.hunger = 1; s.thirst = 1;
+    G.step(600);   // 10s fed and watered
+    assert(s.health > worn, 'health did not regen: ' + s.health.toFixed(2));
+    return 'starved 1 → ' + worn.toFixed(2) + ', regen → ' + s.health.toFixed(2);
+  });
+  await raf();
+
+  T('jump: a real hop, up and back down clean', () => {
+    G.teleport(SPAWN.x, SPAWN.z);
+    const s = state.survival; s.health = 1; s.hunger = 1; s.thirst = 1;
+    keys['Space'] = true; G.step(2); keys['Space'] = false;
+    assert(player.airborne, 'never left the ground');
+    let peak = 0, guard = 0;
+    while (player.airborne && guard++ < 300) {
+      G.step(1);
+      peak = Math.max(peak, player.pos.y - terrainH(player.pos.x, player.pos.z));
+    }
+    assert(!player.airborne, 'never landed');
+    assert(peak > 0.4, 'hop too small: ' + peak.toFixed(2) + 'm');
+    assert(s.health > 0.99, 'a hop should not hurt: ' + s.health.toFixed(2));
+    return 'hop peak ' + peak.toFixed(2) + 'm, landed clean';
+  });
+  await raf();
+
+  T('fall damage: a long drop hurts, but does not kill', () => {
+    G.teleport(SPAWN.x, SPAWN.z);
+    const s = state.survival; s.health = 1;
+    player.pos.y = terrainH(player.pos.x, player.pos.z) + 9;
+    player.airborne = true; player.vy = 0;
+    let guard = 0;
+    while (player.airborne && guard++ < 600) G.step(1);
+    assert(!player.airborne, 'never landed');
+    assert(s.health < 0.95, 'no damage from a 9m drop: ' + s.health.toFixed(2));
+    assert(s.health > 0.2, 'a 9m drop should not kill: ' + s.health.toFixed(2));
+    return '9m drop → health ' + s.health.toFixed(2);
+  });
+  await raf();
+
+  T('blackout: health at zero → you wake at the cache', () => {
+    const s = state.survival;
+    G.teleport(SPAWN.x + 60, SPAWN.z - 60);
+    s.health = 0.02; s.hunger = 0; s.thirst = 0; s.bo = 0; s.boMoved = false;
+    G.step(300);   // 5s: wear to zero, black out, wake
+    assert(s.health > 0.25, 'did not recover after blackout: ' + s.health.toFixed(2));
+    const d = Math.hypot(player.pos.x - CACHE.x, player.pos.z - CACHE.z);
+    assert(d < 12, 'did not wake at the cache: ' + d.toFixed(1) + 'm away');
+    s.health = 1; s.hunger = 1; s.thirst = 1;   // leave the suite on its feet
+    return 'woke at the cache, health restored to ' + 0.35;
+  });
+  await raf();
+
+  T('survival persists in the forest save', () => {
+    const s = state.survival;
+    s.health = 0.77; s.hunger = 0.55; s.thirst = 0.44; inventory.rations = 1;
+    saveForest();
+    const data = loadForest();
+    assert(data && data.surv, 'no surv block in the save');
+    assert(Math.abs(data.surv.h - 0.77) < 0.01 && Math.abs(data.surv.hu - 0.55) < 0.01
+      && Math.abs(data.surv.th - 0.44) < 0.01, 'surv values wrong in save');
+    assert(data.inv.rations === 1, 'rations not in the save: ' + data.inv.rations);
+    s.health = 1; s.hunger = 1; s.thirst = 1; inventory.rations = 2;
+    return 'health/hunger/thirst/rations ride the save file';
+  });
+  await raf();
+
   T('all 3 pads show honest meters', () => {
     const reads = {};
     for (const p of PADS) {
@@ -2703,6 +2879,28 @@ async function runTests() {
     const again = G.loadForest();   // reload-simulate: fresh read of the save file
     assert(again && again.burned.length === burned.length && again.stations[0] === 'ridge', 'reload read failed');
     return burned.length + ' scars + ridge station survive reload';
+  });
+  await raf();
+
+  T('fire hurts: the flames have teeth now', () => {
+    const s = state.survival;
+    s.health = 1; s.hunger = 1; s.thirst = 1; s.bo = 0; s.heatToastT = 0;
+    const k = G.igniteNear(-140, 60);
+    assert(k >= 0, 'no fuel cell for the burn test');
+    const c = G.fire.cells.get(k);
+    G.teleport(c.anchor[0] + 1.5, c.anchor[2]);
+    G.step(120);   // 2s standing in the flames
+    assert(s.health < 0.9, 'fire did no damage: ' + s.health.toFixed(2));
+    const inFlames = s.health;
+    G.teleport(c.anchor[0] + 30, c.anchor[2] + 30);
+    G.step(60);    // 1s well clear — the burning stops
+    assert(Math.abs(s.health - inFlames) < 0.03, 'fire damage leaked beyond the flames');
+    // snuff the test burn so the scripted arc starts from a quiet valley
+    for (const [, cc] of G.fire.cells) cc.out = Math.min(cc.out, cc.t + 0.5);
+    let guard = 0;
+    while (G.fire.cells.size && guard++ < 600) G.step(1);
+    s.health = 1;
+    return '2s in flames → health ' + inFlames.toFixed(2) + ', stops when you step out';
   });
   await raf();
 

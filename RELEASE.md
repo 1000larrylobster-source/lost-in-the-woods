@@ -36,9 +36,18 @@ code. No external assets. The whole game is one HTML file.
 ## Controls
 
 - **Move:** WASD / arrow keys — or the on-screen stick on touch
-- **Look:** drag / swipe to orbit the camera
+- **Look:** drag / swipe to steer the camera (it follows you on its own while you move)
+- **Jump:** Space — or the ▲ button on touch
 - **Interact:** E — or the on-screen prompt button
 - **Test mode:** append `?test=1` to run the on-canvas verification harness
+
+## Survive
+
+You have a body now: **health, hunger, thirst**. Drink at the creek, eat rations at
+the cache or a station you've built. Starve and you fade; fall too far or stand in
+the flames and it costs you. Hit zero and you black out — the forest keeps burning
+while you're down, and you wake at the cache weaker. Your vitals ride the same save
+file as the scars.
 
 ## Verification
 
