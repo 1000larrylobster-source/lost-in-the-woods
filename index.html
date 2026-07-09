@@ -419,6 +419,290 @@ renderer.toneMappingExposure = 1.12;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
+/* ------------------------ the Zelda look: toon ramp + inked outlines --
+   Plan of record: design/ZELDA-LOOK.md. MeshToonMaterial quantizes N.L
+   into painted bands (soft 3-step ramp, not hard two-band — BotW is a
+   hybrid). OutlineEffect is the three r147 addon inlined, with three
+   patches vs stock: (1) instanceMatrix applied in the outline vertex
+   shader so the instanced pines/rocks outline correctly, (2) outlines
+   are OPT-IN via material.userData.outlineParameters — the game's many
+   additive glow/smoke/fire discs must never get ink rims, (3) Points/
+   Sprites are hidden during the outline pass so stars don't draw twice. */
+const OutlineEffect = (() => {
+  const { BackSide, Color, ShaderMaterial, UniformsLib, UniformsUtils } = THREE;
+  class OutlineEffect {
+    constructor(renderer, parameters = {}) {
+      this.enabled = true;
+      const defaultThickness = parameters.defaultThickness !== undefined ? parameters.defaultThickness : 0.003;
+      const defaultColor = new Color().fromArray(parameters.defaultColor !== undefined ? parameters.defaultColor : [0, 0, 0]);
+      const defaultAlpha = parameters.defaultAlpha !== undefined ? parameters.defaultAlpha : 1.0;
+      const defaultKeepAlive = parameters.defaultKeepAlive !== undefined ? parameters.defaultKeepAlive : false;
+      const cache = {};
+      const removeThresholdCount = 60;
+      const originalMaterials = {};
+      const originalOnBeforeRenders = {};
+      const hiddenPoints = [];
+      const uniformsOutline = {
+        outlineThickness: { value: defaultThickness },
+        outlineColor: { value: defaultColor },
+        outlineAlpha: { value: defaultAlpha },
+      };
+      const vertexShader = [
+        '#include <common>',
+        '#include <uv_pars_vertex>',
+        '#include <displacementmap_pars_vertex>',
+        '#include <fog_pars_vertex>',
+        '#include <morphtarget_pars_vertex>',
+        '#include <skinning_pars_vertex>',
+        '#include <logdepthbuf_pars_vertex>',
+        '#include <clipping_planes_pars_vertex>',
+        'uniform float outlineThickness;',
+        'vec4 calculateOutline( vec4 pos, vec3 normal, vec4 skinned ) {',
+        '  float thickness = outlineThickness;',
+        '  vec4 ep = vec4( skinned.xyz + normal, 1.0 );',
+        '  #ifdef USE_INSTANCING',
+        '  ep = instanceMatrix * ep;',
+        '  #endif',
+        '  vec4 pos2 = projectionMatrix * modelViewMatrix * ep;',
+        '  vec4 norm = normalize( pos - pos2 );',
+        '  return pos + norm * thickness * pos.w;',
+        '}',
+        'void main() {',
+        '  #include <uv_vertex>',
+        '  #include <beginnormal_vertex>',
+        '  #include <morphnormal_vertex>',
+        '  #include <skinbase_vertex>',
+        '  #include <skinnormal_vertex>',
+        '  #include <begin_vertex>',
+        '  #include <morphtarget_vertex>',
+        '  #include <skinning_vertex>',
+        '  #include <displacementmap_vertex>',
+        '  #include <project_vertex>',
+        '  vec3 outlineNormal = - objectNormal;',
+        '  gl_Position = calculateOutline( gl_Position, outlineNormal, vec4( transformed, 1.0 ) );',
+        '  #include <logdepthbuf_vertex>',
+        '  #include <clipping_planes_vertex>',
+        '  #include <fog_vertex>',
+        '}',
+      ].join('\n');
+      const fragmentShader = [
+        '#include <common>',
+        '#include <fog_pars_fragment>',
+        '#include <logdepthbuf_pars_fragment>',
+        '#include <clipping_planes_pars_fragment>',
+        'uniform vec3 outlineColor;',
+        'uniform float outlineAlpha;',
+        'void main() {',
+        '  #include <clipping_planes_fragment>',
+        '  #include <logdepthbuf_fragment>',
+        '  gl_FragColor = vec4( outlineColor, outlineAlpha );',
+        '  #include <tonemapping_fragment>',
+        '  #include <encodings_fragment>',
+        '  #include <fog_fragment>',
+        '  #include <premultiplied_alpha_fragment>',
+        '}',
+      ].join('\n');
+      function createMaterial() {
+        return new ShaderMaterial({
+          type: 'OutlineEffect',
+          uniforms: UniformsUtils.merge([UniformsLib['fog'], UniformsLib['displacementmap'], uniformsOutline]),
+          vertexShader, fragmentShader, side: BackSide,
+        });
+      }
+      function getOutlineMaterialFromCache(originalMaterial) {
+        let data = cache[originalMaterial.uuid];
+        if (data === undefined) {
+          data = { material: createMaterial(), used: true, keepAlive: defaultKeepAlive, count: 0 };
+          cache[originalMaterial.uuid] = data;
+        }
+        data.used = true;
+        return data.material;
+      }
+      function getOutlineMaterial(originalMaterial) {
+        const outlineMaterial = getOutlineMaterialFromCache(originalMaterial);
+        originalMaterials[outlineMaterial.uuid] = originalMaterial;
+        updateOutlineMaterial(outlineMaterial, originalMaterial);
+        return outlineMaterial;
+      }
+      function isCompatible(object) {
+        const geometry = object.geometry;
+        const hasNormals = geometry !== undefined && geometry.attributes.normal !== undefined;
+        return object.isMesh === true && object.material !== undefined && hasNormals === true;
+      }
+      function setOutlineMaterial(object) {
+        // patched: points/sprites/lines would be double-drawn by the outline
+        // pass (stars brighten) — hide them for its duration instead
+        if (object.isPoints || object.isSprite || object.isLine) {
+          if (object.visible) { object.userData.__outlineHid = true; object.visible = false; }
+          return;
+        }
+        if (isCompatible(object) === false) return;
+        if (Array.isArray(object.material)) {
+          for (let i = 0, il = object.material.length; i < il; i++) {
+            object.material[i] = getOutlineMaterial(object.material[i]);
+          }
+        } else {
+          object.material = getOutlineMaterial(object.material);
+        }
+        originalOnBeforeRenders[object.uuid] = object.onBeforeRender;
+        object.onBeforeRender = onBeforeRender;
+      }
+      function restoreOriginalMaterial(object) {
+        if (object.userData.__outlineHid) { object.userData.__outlineHid = false; object.visible = true; return; }
+        if (isCompatible(object) === false) return;
+        if (Array.isArray(object.material)) {
+          for (let i = 0, il = object.material.length; i < il; i++) {
+            object.material[i] = originalMaterials[object.material[i].uuid];
+          }
+        } else {
+          object.material = originalMaterials[object.material.uuid];
+        }
+        object.onBeforeRender = originalOnBeforeRenders[object.uuid];
+      }
+      function onBeforeRender(renderer, scene, camera, geometry, material) {
+        const originalMaterial = originalMaterials[material.uuid];
+        if (originalMaterial === undefined) return;
+        updateUniforms(material, originalMaterial);
+      }
+      function updateUniforms(material, originalMaterial) {
+        const outlineParameters = originalMaterial.userData.outlineParameters;
+        material.uniforms.outlineAlpha.value = originalMaterial.opacity;
+        if (outlineParameters !== undefined) {
+          if (outlineParameters.thickness !== undefined) material.uniforms.outlineThickness.value = outlineParameters.thickness;
+          if (outlineParameters.color !== undefined) material.uniforms.outlineColor.value.fromArray(outlineParameters.color);
+          if (outlineParameters.alpha !== undefined) material.uniforms.outlineAlpha.value = outlineParameters.alpha;
+        }
+      }
+      function updateOutlineMaterial(material, originalMaterial) {
+        const outlineParameters = originalMaterial.userData.outlineParameters;
+        material.fog = originalMaterial.fog;
+        material.toneMapped = originalMaterial.toneMapped;
+        material.premultipliedAlpha = originalMaterial.premultipliedAlpha;
+        if (outlineParameters !== undefined) {
+          material.visible = originalMaterial.visible === false ? false
+            : (outlineParameters.visible !== undefined ? outlineParameters.visible : true);
+          material.transparent = (outlineParameters.alpha !== undefined && outlineParameters.alpha < 1.0) ? true : originalMaterial.transparent;
+          if (outlineParameters.keepAlive !== undefined) cache[originalMaterial.uuid].keepAlive = outlineParameters.keepAlive;
+        } else {
+          // patched: opt-in — materials that never asked for ink stay out
+          // of the outline pass entirely (stock outlines everything)
+          material.transparent = originalMaterial.transparent;
+          material.visible = false;
+        }
+        if (originalMaterial.wireframe === true || originalMaterial.depthTest === false) material.visible = false;
+        material.version = originalMaterial.version;
+      }
+      function cleanupCache() {
+        let keys = Object.keys(originalMaterials);
+        for (let i = 0, il = keys.length; i < il; i++) originalMaterials[keys[i]] = undefined;
+        keys = Object.keys(originalOnBeforeRenders);
+        for (let i = 0, il = keys.length; i < il; i++) originalOnBeforeRenders[keys[i]] = undefined;
+        keys = Object.keys(cache);
+        for (let i = 0, il = keys.length; i < il; i++) {
+          const key = keys[i];
+          if (cache[key].used === false) {
+            cache[key].count++;
+            if (cache[key].keepAlive === false && cache[key].count > removeThresholdCount) delete cache[key];
+          } else {
+            cache[key].used = false;
+            cache[key].count = 0;
+          }
+        }
+      }
+      this.render = function (scene, camera) {
+        if (this.enabled === false) { renderer.render(scene, camera); return; }
+        const currentAutoClear = renderer.autoClear;
+        renderer.autoClear = this.autoClear;
+        renderer.render(scene, camera);
+        renderer.autoClear = currentAutoClear;
+        this.renderOutline(scene, camera);
+      };
+      this.renderOutline = function (scene, camera) {
+        const currentAutoClear = renderer.autoClear;
+        const currentSceneAutoUpdate = scene.matrixWorldAutoUpdate;
+        const currentSceneBackground = scene.background;
+        const currentShadowMapEnabled = renderer.shadowMap.enabled;
+        scene.matrixWorldAutoUpdate = false;
+        scene.background = null;
+        renderer.autoClear = false;
+        renderer.shadowMap.enabled = false;
+        scene.traverse(setOutlineMaterial);
+        renderer.render(scene, camera);
+        scene.traverse(restoreOriginalMaterial);
+        cleanupCache();
+        scene.matrixWorldAutoUpdate = currentSceneAutoUpdate;
+        scene.background = currentSceneBackground;
+        renderer.autoClear = currentAutoClear;
+        renderer.shadowMap.enabled = currentShadowMapEnabled;
+      };
+      this.autoClear = renderer.autoClear;
+      this.domElement = renderer.domElement;
+      this.shadowMap = renderer.shadowMap;
+      this.clear = function (color, depth, stencil) { renderer.clear(color, depth, stencil); };
+      this.getPixelRatio = function () { return renderer.getPixelRatio(); };
+      this.setPixelRatio = function (value) { renderer.setPixelRatio(value); };
+      this.getSize = function (target) { return renderer.getSize(target); };
+      this.setSize = function (width, height, updateStyle) { renderer.setSize(width, height, updateStyle); };
+      this.setViewport = function (x, y, width, height) { renderer.setViewport(x, y, width, height); };
+      this.setScissor = function (x, y, width, height) { renderer.setScissor(x, y, width, height); };
+      this.setScissorTest = function (boolean) { renderer.setScissorTest(boolean); };
+      this.setRenderTarget = function (renderTarget) { renderer.setRenderTarget(renderTarget); };
+    }
+  }
+  return OutlineEffect;
+})();
+
+// the painted-light ramp: 3 soft-edged bands (shadow .30 / mid .55 / lit .85).
+// The toon shader samples at HALF-LAMBERT (dotNL*0.5+0.5): t=0.5 is the
+// terminator, so both band steps sit above it. LinearFilter keeps the band
+// edges brushy instead of stair-stepped.
+const TOON_RAMP = (() => {
+  const N = 64, arr = new Uint8Array(N);
+  for (let i = 0; i < N; i++) {
+    const t = i / (N - 1);
+    const v = 0.30 + 0.25 * smoothstep(0.50, 0.58, t) + 0.30 * smoothstep(0.74, 0.82, t);
+    arr[i] = Math.round(v * 255);
+  }
+  const tex = new THREE.DataTexture(arr, N, 1, THREE.RedFormat);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  tex.needsUpdate = true;
+  return tex;
+})();
+
+// warm dark-brown ink, faded slightly so fog can win at distance
+const OUTLINE_INK = { thickness: 0.0026, color: [0.10, 0.07, 0.05], alpha: 0.85 };
+
+// every lit material in the world goes through here. roughness/metalness are
+// Standard-only — stripped. Opaque materials get ink by default; transparent
+// ones (water, clouds, ghost previews) never do. opts: { outline, rim }.
+function toonMat(p, opts) {
+  opts = opts || {};
+  const q = Object.assign({}, p);
+  // Standard-only params; r147 MeshToon also dropped flatShading (facets
+  // come from the geometry's baked normals, so the look keeps)
+  delete q.roughness; delete q.metalness; delete q.flatShading;
+  q.gradientMap = TOON_RAMP;
+  const m = new THREE.MeshToonMaterial(q);
+  const outline = opts.outline !== undefined ? opts.outline : !q.transparent;
+  if (outline) m.userData.outlineParameters = Object.assign({}, OUTLINE_INK, outline === true ? null : outline);
+  if (opts.rim) {
+    // BotW recipe: flatten the diffuse (ramp), then a cheap Fresnel rim on top
+    m.onBeforeCompile = (sh) => {
+      sh.fragmentShader = sh.fragmentShader.replace('#include <output_fragment>',
+        'float rimK = pow(1.0 - saturate(dot(normalize(vViewPosition), normalize(normal))), 3.0);\n' +
+        'outgoingLight += vec3(1.0, 0.75, 0.5) * rimK * 0.28;\n' +
+        '#include <output_fragment>');
+    };
+  }
+  return m;
+}
+
+const outlineFX = new OutlineEffect(renderer, {
+  defaultThickness: OUTLINE_INK.thickness, defaultColor: OUTLINE_INK.color, defaultAlpha: OUTLINE_INK.alpha,
+});
+
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(REGION.pal.fog, 0.0016);
 
@@ -492,7 +776,7 @@ const clouds = [];
 (function buildClouds() {
   let seed = 31337;
   const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
-  const mat = new THREE.MeshStandardMaterial({ color: 0xe8e8ee, roughness: 1, transparent: true, opacity: 0.42, flatShading: true, depthWrite: false });
+  const mat = toonMat({ color: 0xe8e8ee, roughness: 1, transparent: true, opacity: 0.42, flatShading: true, depthWrite: false });
   for (let i = 0; i < 8; i++) {
     const g = new THREE.Group();
     const n = 3 + Math.round(rnd() * 2);
@@ -568,7 +852,8 @@ scene.add(groundGroup);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geo.computeVertexNormals();
-  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
+  // no ink on the terrain itself — the hills read through fog + banding
+  const mat = toonMat({ vertexColors: true }, { outline: false });
   const ground = new THREE.Mesh(geo, mat);
   ground.receiveShadow = true;
   ground.name = 'terrain';
@@ -592,7 +877,7 @@ scene.add(groundGroup);
   geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  const mat = new THREE.MeshStandardMaterial({
+  const mat = toonMat({
     color: 0x33507c, roughness: 0.15, metalness: 0.55,
     transparent: true, opacity: 0.88, emissive: 0x1c2a48, emissiveIntensity: 0.5
   });
@@ -651,7 +936,7 @@ let trees = null, treePositions = [];
       spots.push([x, z]);
     }
   }
-  trees = new THREE.InstancedMesh(tree, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true }), spots.length);
+  trees = new THREE.InstancedMesh(tree, toonMat({ vertexColors: true, roughness: 1, flatShading: true }), spots.length);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), v = new THREE.Vector3(), tint = new THREE.Color();
   for (let i = 0; i < spots.length; i++) {
     const [x, z] = spots[i];
@@ -675,7 +960,7 @@ let trees = null, treePositions = [];
 // scattered rocks
 (function buildRocks() {
   const rock = colorGeo(new THREE.DodecahedronGeometry(1, 0), 0x776f66);
-  const inst = new THREE.InstancedMesh(rock, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true }), 70);
+  const inst = new THREE.InstancedMesh(rock, toonMat({ vertexColors: true, roughness: 1, flatShading: true }), 70);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), v = new THREE.Vector3();
   for (let i = 0; i < 70; i++) {
     const x = (rng() - 0.5) * 560, z = (rng() - 0.5) * 560;
@@ -696,11 +981,11 @@ const cacheGroup = new THREE.Group();
   const y = terrainH(CACHE.x, CACHE.z);
   cacheGroup.position.set(CACHE.x, y, CACHE.z);
   const crate = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.1, 1.1),
-    new THREE.MeshStandardMaterial({ color: 0x7a5a34, roughness: 0.9 }));
+    toonMat({ color: 0x7a5a34, roughness: 0.9 }));
   crate.position.y = 0.55; crate.castShadow = true; crate.receiveShadow = true;
   cacheGroup.add(crate);
   const tarp = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.12, 1.4),
-    new THREE.MeshStandardMaterial({ color: 0x3a5240, roughness: 1 }));
+    toonMat({ color: 0x3a5240, roughness: 1 }));
   tarp.position.y = 1.16; tarp.rotation.z = 0.08; cacheGroup.add(tarp);
   // guide beacon: warm shaft of light, visible from the trail
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.6, 46, 10, 1, true),
@@ -720,7 +1005,7 @@ const padMarkers = [];
     const g = new THREE.Group();
     g.position.set(p.x, y, p.z);
     const slab = new THREE.Mesh(new THREE.CylinderGeometry(3, 3.4, 0.5, 9),
-      new THREE.MeshStandardMaterial({ color: 0x8a8378, roughness: 1, flatShading: true }));
+      toonMat({ color: 0x8a8378, roughness: 1, flatShading: true }));
     slab.position.y = 0.1; slab.receiveShadow = true; slab.castShadow = true;
     g.add(slab);
     const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.85, 40, 8, 1, true),
@@ -769,18 +1054,18 @@ const SITES = [
 const LOOSE = [];   // parts set down in the open — the forest holds them for you
 
 function makePartMesh(part) {
-  const mat = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r == null ? 0.85 : r, flatShading: true });
+  const mat = (c, r) => toonMat({ color: c, roughness: r == null ? 0.85 : r, flatShading: true });
   let m;
   if (part === 'base') m = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.5, 1.2), mat(0x8d8578));
   else if (part === 'scaffold') { m = new THREE.Mesh(new THREE.BoxGeometry(0.35, 2.6, 0.35), mat(0x9aa0a8, 0.5)); m.rotation.z = Math.PI / 2 - 0.12; }
   else if (part === 'antenna') { m = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.4, 6), mat(0x22262c, 0.4)); m.rotation.z = Math.PI / 2 + 0.2; }
   else m = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.1, 1.1),
-    new THREE.MeshStandardMaterial({ color: 0x1c2f5e, roughness: 0.25, metalness: 0.6, emissive: 0x0c1830, emissiveIntensity: 0.5 }));
+    toonMat({ color: 0x1c2f5e, roughness: 0.25, metalness: 0.6, emissive: 0x0c1830, emissiveIntensity: 0.5 }));
   m.castShadow = true;
   return m;
 }
 (function buildSites() {
-  const mat = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r == null ? 0.9 : r, flatShading: true });
+  const mat = (c, r) => toonMat({ color: c, roughness: r == null ? 0.9 : r, flatShading: true });
   for (const s of SITES) {
     const y = terrainH(s.x, s.z);
     const g = new THREE.Group();
@@ -848,8 +1133,8 @@ function revealSites(west) {
 // food lives in the valley, not just the cache: pick berries, they regrow.
 const bushes = [];
 (function plantBushes() {
-  const bushMat = new THREE.MeshStandardMaterial({ color: 0x2e5d34, roughness: 0.95, flatShading: true });
-  const berryMat = new THREE.MeshStandardMaterial({ color: 0xc03030, roughness: 0.6 });
+  const bushMat = toonMat({ color: 0x2e5d34, roughness: 0.95, flatShading: true });
+  const berryMat = toonMat({ color: 0xc03030, roughness: 0.6 });
   let lcg = 20260708;   // fixed seed: the same valley grows the same bushes
   const rnd = () => (lcg = (lcg * 1664525 + 1013904223) >>> 0) / 4294967296;
   let guard = 0;
@@ -901,7 +1186,8 @@ const player = {
 };
 (function buildCharacter() {
   const g = player.group;
-  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, flatShading: true });
+  // smooth-shaded + Fresnel rim: the character pops off the flat world (BotW)
+  const mat = (c) => toonMat({ color: c }, { rim: true, outline: { thickness: 0.0035, color: [0.08, 0.05, 0.04], alpha: 0.95 } });
   // legs
   const legGeo = new THREE.BoxGeometry(0.16, 0.55, 0.2);
   const legL = new THREE.Mesh(legGeo, mat(0x3a3f4e)); legL.position.set(0.12, 0.45, 0);
@@ -1494,7 +1780,7 @@ function makeStationMesh() {
   // reads as HARDWARE.md: concrete pad, mast, tilted solar panel, Pi node box
   // with a blinking LED, camera housing + LoRa whip on top
   const g = new THREE.Group();
-  const mat = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r == null ? 0.85 : r, flatShading: true });
+  const mat = (c, r) => toonMat({ color: c, roughness: r == null ? 0.85 : r, flatShading: true });
   const base = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.8, 0.5, 8), mat(0x8d8578));
   base.position.y = 0.25;
   const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 8.6, 6), mat(0x9aa0a8, 0.5));
@@ -1505,7 +1791,7 @@ function makeStationMesh() {
   // solar panel, tilted toward the western sun
   const panel = new THREE.Group();
   const pMesh = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.08, 1.7),
-    new THREE.MeshStandardMaterial({ color: 0x1c2f5e, roughness: 0.25, metalness: 0.6, emissive: 0x0c1830, emissiveIntensity: 0.5 }));
+    toonMat({ color: 0x1c2f5e, roughness: 0.25, metalness: 0.6, emissive: 0x0c1830, emissiveIntensity: 0.5 }));
   const pFrame = new THREE.Mesh(new THREE.BoxGeometry(2.62, 0.05, 1.82), mat(0xb8bcc2, 0.4));
   pFrame.position.y = -0.05;
   panel.add(pMesh, pFrame);
@@ -1539,7 +1825,7 @@ function makeStationMesh() {
 }
 function makeDroneMesh() {
   const g = new THREE.Group();
-  const mat = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r == null ? 0.7 : r, flatShading: true });
+  const mat = (c, r) => toonMat({ color: c, roughness: r == null ? 0.7 : r, flatShading: true });
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.22, 0.7), mat(0x33383f));
   const camGimbal = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), mat(0x181c22, 0.3));
   camGimbal.position.y = -0.18;
@@ -1550,7 +1836,7 @@ function makeDroneMesh() {
     arm.position.set(sx * 0.45, 0.05, sz * 0.45);
     arm.rotation.y = Math.atan2(sz, sx);
     const rotor = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.02, 12),
-      new THREE.MeshStandardMaterial({ color: 0xb8c2cc, transparent: true, opacity: 0.45 }));
+      toonMat({ color: 0xb8c2cc, transparent: true, opacity: 0.45 }));
     rotor.position.set(sx * 0.62, 0.12, sz * 0.62);
     g.add(arm, rotor);
     rotors.push(rotor);
@@ -2147,7 +2433,7 @@ const Events = {
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  outlineFX.setSize(window.innerWidth, window.innerHeight);
   sizeOverlay();
 });
 // snap the camera behind the player on the first frame
@@ -2178,7 +2464,7 @@ function frame(now) {
   last = now;
   // the title holds the world still behind it; test mode drives update() by hand
   if (!TEST && !titleActive) update(dt);
-  renderer.render(scene, camera);
+  outlineFX.render(scene, camera);
   drawOverlay();
 }
 requestAnimationFrame(frame);
@@ -2757,7 +3043,7 @@ const animalPing = { active: false, x: 0, z: 0, cooldownUntil: 0 };
 const animalBeacon = makeSignalBeacon(0xd88a4a);
 function makeElkMesh() {
   const g = new THREE.Group();
-  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.95, flatShading: true });
+  const mat = (c) => toonMat({ color: c, roughness: 0.95, flatShading: true });
   const body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.85, 0.7), mat(0x6a5138));
   body.position.y = 1.05;
   const neck = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.34), mat(0x6a5138));
@@ -2973,7 +3259,7 @@ const hiker = {
 };
 function makeHikerMesh() {
   const g = new THREE.Group();
-  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.95, flatShading: true });
+  const mat = (c) => toonMat({ color: c });   // smooth: people read rounder than props
   const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.4, 3, 8), mat(0x3f5570));
   torso.position.y = 0.55; torso.rotation.x = 0.35;
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 8), mat(0xd8a880));
@@ -3058,7 +3344,7 @@ const recruits = [];
 let pendingRecruit = null;
 function makeSettlerMesh() {
   const g = new THREE.Group();
-  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, flatShading: true });
+  const mat = (c) => toonMat({ color: c });   // smooth: people read rounder than props
   const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.46, 3, 8), mat(0x4a6a52));
   torso.position.y = 1.0;
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 8), mat(0xc79b74));
@@ -3075,7 +3361,7 @@ function settleRecruit(key) {
   const cx = home.x + 11, cz = home.z + 7;
   const y = terrainH(cx, cz);
   const g = new THREE.Group();
-  const mat = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r == null ? 0.9 : r, flatShading: true });
+  const mat = (c, r) => toonMat({ color: c, roughness: r == null ? 0.9 : r, flatShading: true });
   // tent: two leaning slabs over a ridge pole
   const t1 = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.08, 1.6), mat(0x7a5c34));
   t1.position.set(0, 0.75, -0.55); t1.rotation.x = 0.85;
@@ -3085,7 +3371,7 @@ function settleRecruit(key) {
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.1, 6, 10), mat(0x5a5650, 0.95));
   ring.position.set(1.9, 0.1, 0.4); ring.rotation.x = Math.PI / 2;
   const coals = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 0.12, 8),
-    new THREE.MeshStandardMaterial({ color: 0x3a2418, emissive: 0xff7a30, emissiveIntensity: 0.55, roughness: 0.9 }));
+    toonMat({ color: 0x3a2418, emissive: 0xff7a30, emissiveIntensity: 0.55, roughness: 0.9 }));
   coals.position.set(1.9, 0.12, 0.4); coals.name = 'coals';
   const settler = makeSettlerMesh();
   settler.position.set(0.9, 0, 1.4);
@@ -3147,7 +3433,7 @@ function saplingCheck() {
   const i = Math.floor(state.firstScar.k / GRID_N), j = state.firstScar.k % GRID_N;
   const [sx, sz] = cellCenter(i, j);
   const g = new THREE.Group();
-  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, flatShading: true });
+  const mat = (c) => toonMat({ color: c, roughness: 0.9, flatShading: true });
   const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 0.7, 5), mat(0x5a4230));
   stem.position.y = 0.35;
   const crown = new THREE.Mesh(new THREE.ConeGeometry(0.45, 1.0, 6), mat(0x62b04a));   // the only green this bright
@@ -3200,7 +3486,7 @@ const bunker = { built: false, doorOpen: false, openT: 0, alarmed: false, group:
 function buildBunker() {
   if (bunker.built || !(REGION.id === 'meadow' || state.eggForce)) return;
   bunker.built = true;
-  const mat = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r == null ? 0.85 : r, flatShading: true });
+  const mat = (c, r) => toonMat({ color: c, roughness: r == null ? 0.85 : r, flatShading: true });
   const g = new THREE.Group();
   const box = new THREE.Mesh(new THREE.BoxGeometry(6, 3.4, 4.6), mat(0x8d8578));
   box.position.y = 1.7;
@@ -3227,7 +3513,7 @@ function buildBunker() {
   bunker.group = g; bunker.door = door; bunker.x = bx; bunker.z = bz;
   // the keycard, dropped near the old ranger station
   const card = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.02, 0.32),
-    new THREE.MeshStandardMaterial({ color: 0xe8e4dc, roughness: 0.4 }));
+    toonMat({ color: 0xe8e4dc, roughness: 0.4 }));
   const kx = -42, kz = 88;
   card.position.set(kx, terrainH(kx, kz) + 0.05, kz);
   scene.add(card);
@@ -3251,7 +3537,7 @@ function buildKvm() {
   if (kvm.built || !(REGION.id === 'oldburn' || state.eggForce)) return;
   kvm.built = true;
   const relay = PADS.find(p => p.id === 'relay');
-  const mat = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r == null ? 0.7 : r, flatShading: true });
+  const mat = (c, r) => toonMat({ color: c, roughness: r == null ? 0.7 : r, flatShading: true });
   const g = new THREE.Group();
   const box = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.34, 0.4), mat(0x33383f));
   box.position.y = 0.5;
@@ -3284,7 +3570,7 @@ const cabin = { built: false, group: null };
 function buildCabin() {
   if (cabin.built || !(REGION.id === 'pass' || state.eggForce)) return;
   cabin.built = true;
-  const mat = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r == null ? 0.9 : r, flatShading: true });
+  const mat = (c, r) => toonMat({ color: c, roughness: r == null ? 0.9 : r, flatShading: true });
   const g = new THREE.Group();
   const body = new THREE.Mesh(new THREE.BoxGeometry(5, 2.6, 4), mat(0x5a4632));
   body.position.y = 1.3;
@@ -3295,7 +3581,7 @@ function buildCabin() {
   win.position.set(1.2, 1.5, 2.01);
   // the lone panel, wired to nothing you can see at first
   const pan = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.08, 1.1),
-    new THREE.MeshStandardMaterial({ color: 0x1c2f5e, roughness: 0.25, metalness: 0.6 }));
+    toonMat({ color: 0x1c2f5e, roughness: 0.25, metalness: 0.6 }));
   pan.position.set(26, 1.1 - 0.2, 30); pan.rotation.z = 0.5;
   // the red lobster on the shelf, two cones and claw-spheres
   const lob = new THREE.Group();
@@ -3463,10 +3749,10 @@ function spawnCache2() {
   const g = new THREE.Group();
   g.position.set(cache2.x, terrainH(cache2.x, cache2.z), cache2.z);
   const crate = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.0, 1.0),
-    new THREE.MeshStandardMaterial({ color: 0x6a7078, roughness: 0.85 }));
+    toonMat({ color: 0x6a7078, roughness: 0.85 }));
   crate.position.y = 0.5; crate.castShadow = true;
   const tarp = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.12, 1.3),
-    new THREE.MeshStandardMaterial({ color: 0xc2622a, roughness: 1 }));
+    toonMat({ color: 0xc2622a, roughness: 1 }));
   tarp.position.y = 1.08; tarp.rotation.z = -0.07;
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.6, 46, 10, 1, true),
     new THREE.MeshBasicMaterial({ color: 0x9fd8ff, transparent: true, opacity: 0.15, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
@@ -5218,7 +5504,7 @@ async function runTests() {
 
   testsDone = true;
   G.testsDone = true;
-  renderer.render(scene, camera);
+  outlineFX.render(scene, camera);
   drawOverlay();   // paint the final tally even if no more rAF frames land
   console.log('[LITW TEST] ' + testResults.filter(r => r.ok).length + '/' + testResults.length + ' PASS');
 }
