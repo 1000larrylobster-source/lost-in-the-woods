@@ -2702,6 +2702,55 @@ function runnerHaulAtDawn() {
     }
   }
 }
+/* ------------------------------------------------- story: the region cards -- */
+// One card in, one card out, per region — MAPS.md order, STORY.md voice.
+const STORY_CARDS = {
+  1: { open: ['Dusk. You don\'t know these woods.', 'They don\'t know you yet, either.', 'There\'s a light down the hill.'],
+       close: ['The forest remembers.', 'So do you — what it is to be found.', 'Now you\'re the one holding the light.'] },
+  2: { open: ['Two creeks braid through this country,', 'and the wind stops being a promise.', 'It has moods here. Learn them, or chase them.'],
+       close: ['The man you walked home came back.', 'Gloves on. Took the heavy end.', 'The first one who stayed.'] },
+  3: { open: ['Black water. Black nights — longer here than anywhere.', 'What starts after sundown grows until dawn.', 'Get eyes that don\'t need the sun.'],
+       close: ['Mae came up chasing a repeater she built in \'09.', 'Found your mesh instead.', 'She stays, to keep the links clean.'] },
+  4: { open: ['Open ground, elk moving through like weather.', 'The drones flag everything warm.', 'Learning what not to fear is the work now.'],
+       close: ['Hollis staffed a lookout, back when there was one.', 'He missed the big one by a night\'s sleep.', 'He doesn\'t sleep past dawn anymore. He stays.'] },
+  5: { open: ['Red rock, tall sky, weather with intent.', 'When the front rolls in, the network goes blind first.', 'Repair is a fighting skill here.'],
+       close: ['Birdie followed a great gray owl past dark,', 'and the dark kept her — till the drone heard her first.', 'She hears everything early. Night watch, covered.'] },
+  6: { open: ['Cold country. The sun works at a slant.', 'Snow settles on the panels, quiet as guilt.', 'Scrape them clear. Keep the fire fed.'],
+       close: ['June was out mapping the berry ground', 'her grandmother picked, naming plants like neighbors.', 'The caches stay full now. She stays.'] },
+  7: { open: ['The creek is a memory. One spring still runs.', 'Brittle fuel, ember wind — fire jumps here.', 'Cut wider. Cut earlier.'],
+       close: ['Cole went up the canyon to outrun a bad year.', 'Fastest legs in the Range, and now they run for it.', 'He stays.'] },
+  8: { open: ['The high country calls the lightning down.', 'Strikes come in threes, telegraphed by a breath.', 'You can\'t be everywhere. Stop trying to be.'],
+       close: ['Teo climbed above treeline chasing the storm', 'that nearly kept him. He never learned to fear it.', 'The masts are his now. He stays.'] },
+  9: { open: ['This one burned before anyone watched.', 'Black snags, ash soil, ghost towers of the crew before.', 'Their parts still work. So can yours, twice.'],
+       close: ['Wren came back for a brother', 'the old searches never found. She reads ground like text.', 'She never quits a trail. The last one who stayed.'] },
+  10: { open: ['Forty days, no rain.', 'Every tower answers. Every neighbor is on the wire.', 'Say when.'],
+        close: ['The rain came the way it always does — late.', 'Count the towers. Count the people. Everyone up there was lost once.', 'The lost don\'t leave the woods. They become its watchers.'] },
+};
+const storyCard = { active: false, t: 0, onDone: null };
+function showStoryCard(title, lines, onDone) {
+  storyCard.active = true; storyCard.t = 0; storyCard.onDone = onDone || null;
+  document.querySelector('#card h1').textContent = title;
+  P2E.cardSub.innerHTML = lines.join('<br>');
+  P2E.card.style.display = 'flex';
+  P2E.card.style.opacity = '1';
+}
+function dismissStoryCard() {
+  if (!storyCard.active) return;
+  storyCard.active = false;
+  P2E.card.style.display = 'none';
+  document.querySelector('#card h1').textContent = 'THE FOREST REMEMBERS';
+  if (storyCard.onDone) { const f = storyCard.onDone; storyCard.onDone = null; f(); }
+}
+window.addEventListener('keydown', () => { if (storyCard.active && storyCard.t > 0.8) dismissStoryCard(); });
+window.addEventListener('pointerdown', () => { if (storyCard.active && storyCard.t > 0.8) dismissStoryCard(); });
+Events.on('tick', (dt) => { if (storyCard.active) storyCard.t += dt; });
+function maybeIntroCard() {
+  if (state.introSeen || TEST) return;
+  state.introSeen = true;
+  showStoryCard(REGION.name, STORY_CARDS[REGION_IDX].open);
+  saveForest();
+}
+
 /* ------------------------------------------------ the pass: region travel -- */
 function rangeLoad() {
   try { return JSON.parse(localStorage.getItem(RANGE_KEY) || '{}'); } catch (e) { return {}; }
@@ -2718,10 +2767,13 @@ function travelNext() {
     localStorage.setItem(RANGE_KEY, JSON.stringify(range));
   } catch (e) { /* no storage — the pass still crosses, it just won't remember */ }
   saveForest();
-  state.leaving = true; state.leaveT = state.time;
-  toast('You shoulder your pack. ' + REGIONS[REGION_IDX].name + ' is over the pass.', 'good');
   Events.emit('travel', { to: REGION_IDX + 1 });
-  if (!TEST) setTimeout(() => location.reload(), 1500);
+  if (TEST) return;
+  // the closing card, then the fade, then the next region
+  showStoryCard(REGION.name + ' — HELD', STORY_CARDS[REGION_IDX].close, () => {
+    state.leaving = true; state.leaveT = state.time;
+    setTimeout(() => location.reload(), 1400);
+  });
 }
 
 // sleep: the night passes in a breath — for you. The forest keeps its own time:
@@ -3102,6 +3154,7 @@ function saveForest() {
       best: Math.max(coveragePercent(), (loadForest() || {}).best || 0),
       cache2: cache2.salvaged, rescued: hiker.done, salvaged: state.salvaged,
       recruits: recruits.map(r => r.key),
+      introSeen: !!state.introSeen,
     }));
   } catch (e) { /* saving must never crash the watch */ }
 }
@@ -3230,6 +3283,7 @@ function restoreForest() {
       // the neighbors come back with the forest
       for (const k of (data.recruits || [])) settleRecruit(k);
       if (data.rescued && !recruits.length) pendingRecruit = 'dale';   // pre-recruit saves owe him a camp
+      state.introSeen = !!data.introSeen;
       const anyFlying = data.stations.length > nd.size;
       if (anyFlying) {
         // a live watch resumes where it left off — endless, fires and all
@@ -3302,7 +3356,7 @@ Events.on('tick', (dt) => {
       'REGION ' + REGION_IDX + ' OF 10 — ' + REGION.name
       + ((range.roster || []).length ? ' · ' + (range.roster || []).length + ' WATCHER' + ((range.roster || []).length > 1 ? 'S' : '') : '');
   }
-  const start = () => { titleActive = false; titleEl.style.display = 'none'; };
+  const start = () => { titleActive = false; titleEl.style.display = 'none'; maybeIntroCard(); };
   btnC.addEventListener('click', start);
   btnN.addEventListener('click', () => {
     if (hasSave && !confirm('Start a NEW watch? The whole Range — every region, every scar, every neighbor — is forgotten.')) return;
@@ -4072,6 +4126,24 @@ async function runTests() {
     assert(PADS.length === 4 && PADS[3].id === 'relay', 'relay pad missing');
     assert(SITES.length === 9, 'pass sites missing: ' + SITES.length);
     return '10 regions · relay pad · 9 component sites · valley loaded';
+  });
+  await raf();
+
+  T('story: ten regions of cards, and the card machinery works', () => {
+    for (let i = 1; i <= 10; i++) {
+      const c = STORY_CARDS[i];
+      assert(c && Array.isArray(c.open) && c.open.length >= 2 && Array.isArray(c.close) && c.close.length >= 2,
+        'region ' + i + ' cards incomplete');
+    }
+    let fired = false;
+    showStoryCard('TEST CARD', ['line one', 'line two'], () => { fired = true; });
+    assert(storyCard.active, 'story card did not open');
+    assert(P2E.card.style.display === 'flex', 'card element not shown');
+    storyCard.t = 1;   // past the accidental-dismiss guard
+    dismissStoryCard();
+    assert(!storyCard.active && fired, 'dismiss/onDone broken');
+    assert(document.querySelector('#card h1').textContent === 'THE FOREST REMEMBERS', 'arc card title not restored');
+    return '10 open + 10 close cards; show → dismiss → onDone clean';
   });
   await raf();
 
