@@ -1058,6 +1058,8 @@ function nearestInteract() {
     // tend the node: the maintenance loop, by hand
     if (st && st.antennaDown)
       return { type: 'reguy', label: 'Re-rig the antenna guys', st };
+    if (st && (st.snow || 0) > 0.25)
+      return { type: 'scrape', label: 'Scrape the panel clear', st };
     if (st && st.foul > 0.25)
       return { type: 'wipe', label: 'Wipe the panel down', st };
     if (st && st.drone && st.wear > 0.5)
@@ -1147,6 +1149,7 @@ function tryInteract() {
   else if (t.type === 'wipe') { t.st.foul = 0; wipeSwish(); toast('Panel wiped clean — full yield again.', 'good'); saveForest(); }
   else if (t.type === 'service') { t.st.wear = 0; serviceRatchet(); toast('Rotors trued, bearings oiled.', 'good'); saveForest(); }
   else if (t.type === 'reguy') { t.st.antennaDown = false; serviceRatchet(); toast('Antenna re-rigged and guyed. The node answers again.', 'good'); saveForest(); }
+  else if (t.type === 'scrape') { t.st.snow = 0; wipeSwish(); toast('Panel scraped to black glass. The sun can work again.', 'good'); saveForest(); }
   else if (t.type === 'talk') {
     toast(t.rec.name + ': ' + t.rec.lines[t.rec.lineIdx % t.rec.lines.length], 'good');
     t.rec.lineIdx++;
@@ -1538,8 +1541,12 @@ function tendStep(st, dt) {
   const day = 1 - clock.nightK;
   const sunF = padMetersCached(st.pad).sun;
   st.foul = clamp(st.foul + dt / 1100, 0, 1);          // ~2 day-cycles to full foul
-  const charge = day * sunF * (1 - 0.6 * st.foul) * (1 - 0.95 * storm.k) / 140;
-  let drain = 1 / 900;
+  if (REGION.id === 'pass' || snow.force) {
+    // snowfall buries the panel; a little daylight melt, mostly your scraper
+    st.snow = clamp((st.snow || 0) + dt * 0.004 * snow.k - dt * 0.0004 * day, 0, 1);
+  }
+  const charge = day * sunF * (1 - 0.6 * st.foul) * (1 - 0.95 * storm.k) * (1 - (st.snow || 0)) / 140;
+  let drain = (1 / 900) * (REGION.id === 'pass' ? 1.3 : 1);   // cold sags batteries — real chemistry
   const flying = st.drone && (st.phase === 'patrol' || st.phase === 'launch');
   if (flying) {
     drain += 1 / 450;
@@ -1561,6 +1568,8 @@ function tendStep(st, dt) {
     st.pad.name.toUpperCase() + ' station: panel fouled — yield down ' + Math.round(st.foul * 60) + '%. Wipe it.');
   warnStation(st, 'wear', st.wear > 0.85,
     st.pad.name.toUpperCase() + ' drone: rotors worn — service it at the tower.');
+  warnStation(st, 'snow', (st.snow || 0) > 0.7,
+    st.pad.name.toUpperCase() + ' station: panel buried in snow — scrape it.');
 }
 function updateStations(dt) {
   for (const st of stations) {
@@ -2119,7 +2128,8 @@ if (TEST) store.removeItem(SAVE_KEY);
 /* ------------------------------------------------- fire: the dry-fuel grid -- */
 const fireRng = mulberry32(4242);   // fire/arc randomness, separate stream = deterministic
 const fire = {
-  cells: new Map(),   // k -> { t, spreadAt, out, anchor:[x,y,z], treeIdx, k, reported, smokeAcc }
+  cells: new Map(),
+  emberForce: false, emberJumps: 0, emberWarned: false,   // k -> { t, spreadAt, out, anchor:[x,y,z], treeIdx, k, reported, smokeAcc }
   burned: new Set(),  // burned-out cells: the scar record (this IS the save file)
   contained: false,
   outbreak: 0,        // cells this outbreak has claimed (burning + burned)
@@ -2157,6 +2167,49 @@ function windStep(dt) {
 // tone. While it runs: drones grounded, solar near-zero, antennas at risk — and
 // the rain halves the fire. Shield and sword.
 const storm = { active: false, k: 0, nextT: 120, ageT: 0, len: 0, force: false };
+/* dry lightning (region 8, the Spine): strike cells drift; ignitions in threes */
+const lightning = { force: false, cellT: 90, active: false, ageT: 0, cx: 0, cz: 0, strikeT: 0, strikes: 0 };
+function thunderTone() { tone(70, 1.1, 0.09, 'sawtooth', 0, -20); tone(55, 1.5, 0.07, 'sine', 0.25, -10); }
+function lightningStep(dt) {
+  if (!(REGION.id === 'spine' || lightning.force)) return;
+  if (!lightning.active) {
+    lightning.cellT -= dt;
+    if (lightning.cellT <= 0) {
+      lightning.active = true; lightning.ageT = 0; lightning.strikes = 2 + Math.round(fireRng());
+      lightning.cx = (fireRng() * 2 - 1) * 200; lightning.cz = (fireRng() * 2 - 1) * 200;
+      lightning.strikeT = 3;
+      toast('Dry cell drifting over — the mesh reads the pressure falling. Strikes coming.', 'alert');
+    }
+  } else {
+    lightning.ageT += dt;
+    lightning.strikeT -= dt;
+    if (lightning.strikeT <= 0 && lightning.strikes > 0) {
+      lightning.strikes--;
+      lightning.strikeT = 4 + fireRng() * 6;
+      const sx = clamp(lightning.cx + (fireRng() - 0.5) * 120, -240, 240);
+      const sz = clamp(lightning.cz + (fireRng() - 0.5) * 120, -240, 240);
+      thunderTone();
+      const ks = igniteNear(sx, sz);
+      if (ks >= 0) toast('STRIKE — ground fire where the bolt walked.', 'alert');
+    }
+    if (lightning.strikes <= 0 && lightning.strikeT <= 0) {
+      lightning.active = false;
+      lightning.cellT = 120 + fireRng() * 160;
+    }
+  }
+}
+/* snow (region 6, the Pass): it buries the panels quiet; scrape them clear */
+const snow = { k: 0, cycleT: 60, falling: false, force: false };
+function snowStep(dt) {
+  if (!(REGION.id === 'pass' || snow.force)) return;
+  snow.cycleT -= dt;
+  if (snow.cycleT <= 0) {
+    snow.falling = !snow.falling;
+    snow.cycleT = snow.falling ? 50 + fireRng() * 60 : 90 + fireRng() * 120;
+    if (snow.falling) toast('Snow coming in. The panels bury quiet as guilt.', 'alert');
+  }
+  snow.k = snow.falling ? Math.min(1, snow.k + dt / 6) : Math.max(0, snow.k - dt / 6);
+}
 function stormStep(dt) {
   if (!(REGION_IDX >= 5 || storm.force)) return;   // quiet country until the canyon
   if (!storm.active) {
@@ -2260,6 +2313,22 @@ function fireStep(dt) {
     c.t += dt * fire.SPEED * hurry;
     if (!fire.contained && c.t >= c.spreadAt && fire.outbreak < 14) {
       c.spreadAt += 18 + fireRng() * 12;
+      // drought country: embers jump the line, 2-4 cells downwind
+      if ((REGION.id === 'dryside' || fire.emberForce) && fireRng() < 0.35) {
+        const i0e = Math.floor(k / GRID_N), j0e = k % GRID_N;
+        const dEmb = 2 + Math.round(fireRng() * 2);
+        const ie = i0e + Math.round(wx * dEmb), je = j0e + Math.round(wz * dEmb);
+        if (ie >= 0 && je >= 0 && ie < GRID_N && je < GRID_N) {
+          const ke = ie * GRID_N + je;
+          if (cellHasFuel(ke) && igniteCell(ke)) {
+            fire.emberJumps++;
+            if (!fire.emberWarned) {
+              fire.emberWarned = true;
+              toast('EMBERS ON THE WIND — it jumped your line.', 'alert');
+            }
+          }
+        }
+      }
       // downwind-weighted pick among dry-fuel neighbours (i axis = x, j axis = z)
       const i0 = Math.floor(k / GRID_N), j0 = k % GRID_N;
       let sum = 0; const cand = [];
@@ -3389,7 +3458,7 @@ function saveForest() {
       needsDrone: stations.filter(s => s.phase === 'needsDrone').map(s => s.pad.id),
       noir: stations.filter(s => s.noir).map(s => s.pad.id),
       antDown: stations.filter(s => s.antennaDown).map(s => s.pad.id),
-      stTend: stations.map(s => ({ id: s.pad.id, p: s.power, f: s.foul, w: s.wear })),
+      stTend: stations.map(s => ({ id: s.pad.id, p: s.power, f: s.foul, w: s.wear, sn: s.snow || 0 })),
       inv: Object.assign({}, inventory),
       surv: { h: state.survival.health, hu: state.survival.hunger, th: state.survival.thirst, w: state.survival.warmth },
       carrying: state.carrying,
@@ -3536,6 +3605,7 @@ function restoreForest() {
           st.power = clamp(+td.p || 0.5, 0.05, 1);   // never restore into a brownout spiral
           st.foul = clamp(+td.f || 0, 0, 1);
           st.wear = clamp(+td.w || 0, 0, 1);
+          st.snow = clamp(+td.sn || 0, 0, 1);
         }
       }
       // the neighbors come back with the forest
@@ -3582,6 +3652,8 @@ Events.on('tick', (dt) => {
   clockStep(dt);
   applyNight();
   stormStep(dt);
+  snowStep(dt);
+  lightningStep(dt);
   fireStep(dt);
   fireHurtStep(dt);
   fireVisualStep(dt);
@@ -3638,7 +3710,7 @@ Object.assign(G, {
   fire, WIND, igniteCell, igniteNear, cellIndexFor, cellHasFuel, cellAnchor, fuelTotal,
   firebreak, clock, detectRadius, arc, firstSmoke, showCard, dismissCard, forestHealth,
   hiker, spawnHiker, rescueHiker, cache2, spawnCache2, doSalvage2, recruits, settleRecruit,
-  rangeLoad, travelNext, sleepUntilDawn, herds, spawnHerd, animalPing, detectRadiusFor, storm,
+  rangeLoad, travelNext, sleepUntilDawn, herds, spawnHerd, animalPing, detectRadiusFor, storm, snow, lightning,
   saveForest, loadForest, SAVE_KEY, store, score, stationAt, restoreStation,
   flamePool, smokeParts, smokeLive, scorchMesh: scorch, sun, toast,
 });
@@ -4503,6 +4575,67 @@ async function runTests() {
     G.fire.contained = false;
     for (const s of stations) { s.power = 1; if (s.phase === 'grounded') { s.phase = 'launch'; s.phaseT = 0; } }
     return 'grounded for weather, ~0 yield, burn at ' + wetRate.toFixed(2) + 'x, antenna re-rigged, front passed';
+  });
+  await raf();
+
+  T('snow: burial kills yield; the scraper answers', () => {
+    const st = stations[0];
+    snow.force = true; snow.falling = true; snow.k = 1;
+    st.snow = 0; st.power = 0.5; st.foul = 0;
+    G.clock.set(60);
+    G.step(600);   // 10s of heavy snowfall
+    assert(st.snow > 0.02, 'snow not settling on the panel: ' + (st.snow || 0).toFixed(3));
+    st.snow = 1;
+    const p0 = st.power;
+    G.step(300);   // buried: zero in, drain out
+    assert(st.power < p0, 'buried panel still charging');
+    G.teleport(st.pad.x + 3, st.pad.z); G.step(3);
+    assert(state.promptTarget && state.promptTarget.type === 'scrape', 'no scrape prompt: ' + (state.promptTarget && state.promptTarget.type));
+    tryInteract();
+    assert(st.snow === 0, 'scrape failed');
+    snow.force = false; snow.falling = false; snow.k = 0; st.power = 1;
+    return 'snow settles, buries the yield, scrapes to black glass';
+  });
+  await raf();
+
+  T('embers: drought fire jumps the line downwind', () => {
+    fire.emberForce = true; fire.emberJumps = 0; fire.emberWarned = false;
+    WIND.gusting = false; WIND.gustK = 0; WIND.gustT = 9999;
+    const k0 = G.igniteNear(-140, -140);
+    assert(k0 >= 0, 'no fuel for the ember test');
+    G.fire.SPEED = 30;
+    let guard = 0;
+    while (fire.emberJumps < 1 && G.fire.outbreak < 14 && guard++ < 2400) G.step(1);
+    G.fire.SPEED = 1;
+    assert(fire.emberJumps >= 1, 'no ember ever jumped: outbreak ' + G.fire.outbreak);
+    fire.emberForce = false;
+    G.fire.contained = true;
+    for (const [, cc] of G.fire.cells) cc.out = Math.min(cc.out, cc.t + 0.5);
+    guard = 0;
+    while (G.fire.cells.size && guard++ < 900) G.step(1);
+    G.fire.contained = false;
+    return fire.emberJumps + ' ember jump(s) over the line';
+  });
+  await raf();
+
+  T('dry lightning: the cell drifts over and the strikes walk', () => {
+    lightning.force = true; lightning.active = false; lightning.cellT = 0.1;
+    const ob0 = G.fire.outbreak, burned0 = G.fire.burned.size + G.fire.cells.size;
+    let guard = 0;
+    while (lightning.active === false && guard++ < 300) G.step(1);
+    assert(lightning.active, 'the cell never formed');
+    guard = 0;
+    while ((lightning.active || G.fire.cells.size === 0) && guard++ < 3000) { G.step(1); if (G.fire.cells.size > 0 && !lightning.active) break; }
+    const litSomething = G.fire.cells.size > 0 || (G.fire.burned.size + G.fire.cells.size) > burned0;
+    assert(litSomething, 'the strikes lit nothing');
+    lightning.force = false; lightning.cellT = 99999;
+    G.fire.contained = true;
+    for (const [, cc] of G.fire.cells) cc.out = Math.min(cc.out, cc.t + 0.5);
+    guard = 0;
+    while (G.fire.cells.size && guard++ < 900) G.step(1);
+    G.fire.contained = false;
+    for (const s of stations) { s.power = 1; if (s.phase === 'grounded') { s.phase = 'launch'; s.phaseT = 0; } }
+    return 'cell formed, strikes walked, ground fire where the bolts hit';
   });
   await raf();
 
