@@ -7,10 +7,11 @@
 *You wake lost. Build the forest's eyes. The ones you save stay.*
 
 ## Price
-**$4.00** · 20% launch-week discount ($3.20). Firm price, no PWYW — the price is part
-of the quality claim. Buy once, all updates included (the build-in-public promise).
-Raise to $6 when the Range's later regions get their full bespoke terrain (a second
-news beat that rewards early believers).
+**$1.00** flat (Jon's call, 2026-07-11 — changed from $4). No launch discount: itch's
+payment floor is $1.00, so a discount can't go lower anyway. Buy once, all updates
+included (the build-in-public promise). Raise later when the Range's later regions get
+their full bespoke terrain (a news beat that rewards early believers — and from $1,
+any raise is a story).
 
 ## Short description (the one-liner under the title)
 A survival wildfire-watch game in one HTML file. Assemble solar towers from parts you

@@ -1,5 +1,18 @@
 # Lost in the Woods — v1.0 "The Range"
 
+**🟢 LIVE at https://1000larrylobster.itch.io/lost-in-the-woods** — published 2026-07-11,
+public, free (name-your-own-price), playable in-browser. Page copy = the v1.0 description.
+
+**Two items still need Jon's hand (browser file-upload wall — CDP-blocked, OS dialog fragile
+in automation):** (1) the live playable build is a **pre-v1.0 Thursday file (`index.html`,
+842kb, uploaded 07-09 12:19am ≈ Phase B)** — replace it by dragging `dist/lost-in-the-woods-v1.0.zip`
+into the Uploads box on the edit page; (2) **no cover image / screenshots yet** — drag
+`release/media/cover-630x500.png` into "Upload Cover Image" and the `release/media/shot-*.png`
+into "Add screenshots". Edit page: https://itch.io/game/edit/4758953 . Durable fix so the
+machine can finish future uploads itself: set an itch password (Settings) → generate an API
+key → `butler push`. **Public launch announcement is HELD until the real v1.0 build is live**
+(the description promises Phase C–E content the Thursday build lacks).
+
 One self-contained HTML page — no install, any browser, desktop and touch.
 
 **Play:** open `index.html`, or unzip `dist/lost-in-the-woods-level1.zip` and open the
