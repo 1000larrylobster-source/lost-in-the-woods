@@ -56,3 +56,7 @@ The tower is a Raspberry Pi 5 + AI HAT fire-detection node (HARDWARE.md) with a
 camera, solar panel, and LoRa antenna. The NoIR camera in region 3 is a real part.
 The failure modes in the game are the node's real failure modes. One design, two
 harvests — the game and the field kit. Built in public: `devlog/`.
+
+## Launch log
+
+- 2026-07-13 itch.io devlog 001 (launch post): https://1000larrylobster.itch.io/lost-in-the-woods/devlog/1585021/devlog-001-v10-is-live-free-in-your-browser
